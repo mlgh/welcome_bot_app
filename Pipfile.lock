@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "e1affc41d1fcf6b7fbd745f4dd7e6ef552fc82acb841739d927dd471e74a17a0"
+            "sha256": "2de9ccb72aa2d693557a7617efed268d79cf11d16c38b952e8a9a6243a9878bd"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -543,6 +543,10 @@
             ],
             "markers": "python_version >= '3.8'",
             "version": "==4.10.0"
+        },
+        "welcome-bot-app": {
+            "editable": true,
+            "file": "src"
         },
         "yarl": {
             "hashes": [

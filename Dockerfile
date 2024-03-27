@@ -10,13 +10,12 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY Pipfile.lock Pipfile ./
-COPY src/ src/
-
 RUN python -m pip install --upgrade pip
 RUN pip install pipenv
 
 # Install python dependencies.
+COPY Pipfile.lock Pipfile ./
+COPY src/ src/
 RUN pipenv install --deploy --ignore-pipfile
 
-CMD pipenv run python src/app.py --bot-token-file /run/secrets/BOT_TOKEN
+CMD pipenv run python -m welcome_bot_app --bot-token-file /run/secrets/BOT_TOKEN

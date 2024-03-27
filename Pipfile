@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 aiogram = "*"
 pillow = "*"
+welcome-bot-app = {file = "src", editable = true}
 
 [dev-packages]
 
