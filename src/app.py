@@ -2,8 +2,6 @@ import sys
 import asyncio
 import logging
 import argparse
-from logging.handlers import TimedRotatingFileHandler
-import sys
 import sqlite3
 from os import getenv
 from aiogram import Bot, Dispatcher, Router, types
@@ -12,10 +10,20 @@ from aiogram.types import Message
 from aiogram.utils.markdown import hbold
 from aiogram.filters import CommandStart
 from aiogram.utils.formatting import Text, TextMention
-from collections import deque
 
 if __name__ == '__main__':
-    print("Hello world!")
+    parser = argparse.ArgumentParser(description="Welcoming Telegram bot.")
+    parser.add_argument("--log-level", help="Set the logging level.", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], default="INFO")
+    parser.add_argument("--bot-token-file", help="Path to the file containing the bot token", required=True)
+    args = parser.parse_args()
+
+    logging.basicConfig(level=getattr(logging, args.log_level), format='%(asctime)s - %(name)s %(levelname)s - %(message)s')
+    logging.info("Starting bot")
+
+    with open(args.bot_token_file, 'r') as f:
+        bot_token = f.read().strip()
+
+    logging.info("Bot token is %s", bot_token)
 
 # # All handlers should be attached to the Router (or Dispatcher)
 # dp = Dispatcher()
