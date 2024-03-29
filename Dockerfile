@@ -18,4 +18,9 @@ COPY Pipfile.lock Pipfile ./
 COPY src/ src/
 RUN pipenv install --deploy --ignore-pipfile
 
-CMD pipenv run python -m welcome_bot_app --bot-token-file /run/secrets/BOT_TOKEN
+CMD pipenv run python -m welcome_bot_app \
+  --bot-token-file /run/secrets/BOT_TOKEN \
+  --telethon-api-id-file /run/secrets/TELETHON_API_ID \
+  --telethon-api-hash-file /run/secrets/TELETHON_API_HASH \
+  --telethond-session-file /run/secrets/TELETHON_SESSION
+

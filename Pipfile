@@ -7,8 +7,10 @@ name = "pypi"
 aiogram = "*"
 pillow = "*"
 welcome-bot-app = {file = "src", editable = true}
+telethon = "*"
 
 [dev-packages]
+ruff = "*"
 
 [requires]
 python_version = "3.11"
