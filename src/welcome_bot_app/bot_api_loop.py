@@ -30,11 +30,14 @@ def extract_bot_events(
         for member in message.new_chat_members:
             user_key = UserKey(user_id=member.id, chat_id=message.chat.id)
             user_info = BotApiUserInfo(
-                is_bot=member.is_bot, first_name=member.first_name
+                is_bot=member.is_bot,
+                first_name=member.first_name,
+                last_name=member.last_name,
             )
             yield BotApiNewChatMember(
                 local_timestamp=local_timestamp,
                 user_key=user_key,
+                user_info=user_info,
                 tg_timestamp=message.date.astimezone(timezone.utc).timestamp(),
             )
     elif message.content_type == aiogram.types.ContentType.LEFT_CHAT_MEMBER:
@@ -57,7 +60,9 @@ def extract_bot_events(
             return
         user_key = UserKey(user_id=message.from_user.id, chat_id=message.chat.id)
         user_info = BotApiUserInfo(
-            is_bot=message.from_user.is_bot, first_name=message.from_user.first_name
+            is_bot=message.from_user.is_bot,
+            first_name=message.from_user.first_name,
+            last_name=message.from_user.last_name,
         )
         yield BotApiNewTextMessage(
             local_timestamp=local_timestamp,

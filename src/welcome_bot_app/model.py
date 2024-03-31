@@ -20,12 +20,15 @@ class UserProfile:
     ichbin_message_id: Optional[int] = None
     ichbin_request_timestamp: Optional[float] = None
     local_kicked_timestamp: Optional[float] = None
+    first_name_when_joining: Optional[str] = None
+    last_name_when_joining: Optional[str] = None
 
 
 @dataclass
 class BotApiUserInfo:
     is_bot: bool
     first_name: str
+    last_name: Optional[str]
 
 
 @dataclass
@@ -59,6 +62,7 @@ class BotApiNewChatMember(Event):
     """New chat member."""
 
     user_key: UserKey
+    user_info: BotApiUserInfo
     tg_timestamp: float
 
 

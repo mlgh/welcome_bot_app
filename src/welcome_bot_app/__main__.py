@@ -76,8 +76,11 @@ async def main() -> None:
         )
     )
     event_processor_task = asyncio.create_task(event_processor.run())
+    periodic_task = asyncio.create_task(
+        event_processor.periodic_event_generator(period=1)
+    )
 
-    all_tasks = [bot_task, telethon_task, event_processor_task]
+    all_tasks = [bot_task, telethon_task, event_processor_task, periodic_task]
     _, pending = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
     for task in pending:
         task.cancel()

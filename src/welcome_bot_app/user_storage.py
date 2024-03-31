@@ -19,7 +19,11 @@ class SqliteUserStorage:
                     ichbin_message_timestamp REAL,
                     ichbin_message_id INTEGER,
                     ichbin_request_timestamp REAL,
-                    local_kicked_timestamp REAL
+                    local_kicked_timestamp REAL,
+                    -- first_name of the user at the moment when they joined.
+                    first_name_when_joining TEXT,
+                    -- last_name of the user at the moment when they joined.
+                    last_name_when_joining TEXT
                 )
             """)
         self._conn.execute("""
@@ -58,7 +62,9 @@ class SqliteUserStorage:
                               ichbin_message_timestamp,
                               ichbin_message_id,
                               ichbin_request_timestamp,
-                              local_kicked_timestamp
+                              local_kicked_timestamp,
+                              first_name_when_joining,
+                              last_name_when_joining
                        FROM UserProfiles
                        WHERE user_id = ? AND chat_id = ?
                        """,
@@ -73,6 +79,8 @@ class SqliteUserStorage:
                 result.ichbin_message_id,
                 result.ichbin_request_timestamp,
                 result.local_kicked_timestamp,
+                result.first_name_when_joining,
+                result.last_name_when_joining,
             ) = row
         return result
 
@@ -81,15 +89,17 @@ class SqliteUserStorage:
             self._conn.execute(
                 """
                 INSERT INTO UserProfiles
-                    (user_id, chat_id, ichbin_message, ichbin_message_timestamp, ichbin_message_id, ichbin_request_timestamp, local_kicked_timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (user_id, chat_id, ichbin_message, ichbin_message_timestamp, ichbin_message_id, ichbin_request_timestamp, local_kicked_timestamp, first_name_when_joining, last_name_when_joining)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (user_id, chat_id)
                 DO UPDATE SET
                     ichbin_message=excluded.ichbin_message,
                     ichbin_message_timestamp=excluded.ichbin_message_timestamp,
                     ichbin_message_id=excluded.ichbin_message_id,
                     ichbin_request_timestamp=excluded.ichbin_request_timestamp,
-                    local_kicked_timestamp=excluded.local_kicked_timestamp
+                    local_kicked_timestamp=excluded.local_kicked_timestamp,
+                    first_name_when_joining=excluded.first_name_when_joining,
+                    last_name_when_joining=excluded.last_name_when_joining
                 """,
                 (
                     profile.user_key.user_id,
@@ -99,5 +109,7 @@ class SqliteUserStorage:
                     profile.ichbin_message_id,
                     profile.ichbin_request_timestamp,
                     profile.local_kicked_timestamp,
+                    profile.first_name_when_joining,
+                    profile.last_name_when_joining,
                 ),
             )

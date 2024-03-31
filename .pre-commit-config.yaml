@@ -21,7 +21,15 @@ repos:
 -   repo: local
     hooks:
     -   id: system
-        name: pipenv
-        entry: python3 -m pipenv run mypy
+        name: local_mypy
+        entry: /usr/bin/python3 -m pipenv run mypy
+        language: system
+        files: \.py$
+  # Pytest hook
+-   repo: local
+    hooks:
+    -   id: system
+        name: local_pytest
+        entry: /usr/bin/python3 -m pipenv run pytest
         language: system
         files: \.py$

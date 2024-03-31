@@ -25,9 +25,13 @@ async def telethon_main(
                 user_id = event.from_id.user_id
                 chat_id = None
                 if isinstance(event.peer_id, telethon.types.PeerUser):
-                    chat_id = event.peer_id.user_id
+                    # This is a private message to the bot user account, we should simply ignore this.
+                    return
                 elif isinstance(event.peer_id, telethon.types.PeerChat):
                     chat_id = event.peer_id.chat_id
+                    # Aiogram, or bot API represent this number as negative.
+                    assert chat_id >= 0
+                    chat_id *= -1
                 else:
                     return
                 assert chat_id is not None
@@ -43,8 +47,6 @@ async def telethon_main(
                         tg_timestamp=event.date.astimezone(timezone.utc).timestamp(),
                     )
                 )
-
-                # await event_queue.put(('TELETHON/NEWMSG', time.time(), event))
 
             # @client.on(telethon.events.MessageEdited)
             # async def message_edited_handler(event):

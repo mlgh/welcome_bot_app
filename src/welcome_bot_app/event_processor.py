@@ -4,7 +4,6 @@ import time
 import re
 from typing import Mapping
 import aiogram
-import datetime
 import telethon
 import aiogram.utils.formatting
 from welcome_bot_app.event_storage import SqliteEventStorage
@@ -134,6 +133,8 @@ class EventProcessor:
             await self._on_bot_api_new_chat_member(event)
         elif isinstance(event, BotApiChatMemberLeft):
             await self._on_bot_api_chat_member_left(event)
+        elif isinstance(event, PeriodicEvent):
+            await self._on_periodic(event)
         else:
             logging.critical("BUG: Unknown event: %s, skipping.", event)
 
@@ -157,6 +158,8 @@ class EventProcessor:
                 "Welcome, user! You still have to write the #ichbin, or I'll kick you.",
             )
             return
+        user_profile.first_name_when_joining = event.user_info.first_name
+        user_profile.last_name_when_joining = event.user_info.last_name
         # XXX: We first write the message, then try to save to the database.
         await self._bot.send_message(
             event.user_key.chat_id,
@@ -296,11 +299,12 @@ class EventProcessor:
             return
         logging.info("Kicking user %s as they didn't write #ichbin in time.", user_key)
         # TODO: Adjust timedelta.
-        await self._bot.ban_chat_member(
-            chat_id=user_profile.user_key.chat_id,
-            user_id=user_profile.user_key.user_id,
-            until_date=datetime.timedelta(minutes=3),
-        )
+        # DO_NOT_SUBMIT
+        # await self._bot.ban_chat_member(
+        #     chat_id=user_profile.user_key.chat_id,
+        #     user_id=user_profile.user_key.user_id,
+        #     until_date=datetime.timedelta(minutes=3),
+        # )
         # TODO: Test how the ban above works.
         # TODO: Find out when we should unban.
         # # Unban immediately, so that they could join again.

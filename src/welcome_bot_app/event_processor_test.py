@@ -5,11 +5,12 @@ from welcome_bot_app.model import (
     UserKey,
     StopEvent,
     BotApiNewChatMember,
+    BotApiUserInfo,
 )
 
 
 @pytest.fixture
-def event_processor():
+def event_processor() -> EventProcessor:
     bot = MagicMock()
     telethon_client = MagicMock()
     event_storage = MagicMock()
@@ -18,10 +19,15 @@ def event_processor():
 
 
 @pytest.mark.asyncio
-async def test_on_bot_api_new_chat_member(event_processor):
+async def test_on_bot_api_new_chat_member(event_processor: EventProcessor) -> None:
     await event_processor.put_event(
         BotApiNewChatMember(
-            local_timestamp=1, user_key=UserKey(user_id=1, chat_id=10), tg_timestamp=1
+            local_timestamp=1,
+            user_key=UserKey(user_id=1, chat_id=10),
+            user_info=BotApiUserInfo(
+                is_bot=False, first_name="first", last_name="last"
+            ),
+            tg_timestamp=1,
         )
     )
     await event_processor.put_event(StopEvent(local_timestamp=2))

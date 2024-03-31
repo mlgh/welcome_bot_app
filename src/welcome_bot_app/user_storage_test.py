@@ -1,14 +1,15 @@
 import pytest
+from typing import Generator
 from welcome_bot_app.user_storage import SqliteUserStorage, UserKey, UserProfile
 
 
 # Create an in-memory SQLite database for testing
 @pytest.fixture
-def test_storage():
+def test_storage() -> Generator[SqliteUserStorage, None, None]:
     yield SqliteUserStorage(":memory:")
 
 
-def test_save_profile(test_storage):
+def test_save_profile(test_storage: SqliteUserStorage) -> None:
     # Create a user profile
     user_key = UserKey(user_id=1, chat_id=1)
     profile = UserProfile(
@@ -18,6 +19,8 @@ def test_save_profile(test_storage):
         ichbin_message_id=123,
         local_kicked_timestamp=2.0,
         ichbin_request_timestamp=3.0,
+        first_name_when_joining="first name",
+        last_name_when_joining="last name",
     )
 
     # Save the profile
@@ -27,11 +30,10 @@ def test_save_profile(test_storage):
     retrieved_profile = test_storage.get_profile(user_key)
 
     # Check if the retrieved profile matches the original profile
-    assert retrieved_profile.user_key == profile.user_key
-    assert retrieved_profile.ichbin_message == profile.ichbin_message
+    assert retrieved_profile == profile
 
 
-def test_save_profile_update(test_storage):
+def test_save_profile_update(test_storage: SqliteUserStorage) -> None:
     # Create a user profile
     user_key = UserKey(user_id=1, chat_id=1)
     profile = UserProfile(user_key=user_key, ichbin_message="Hello, world!")
@@ -45,17 +47,18 @@ def test_save_profile_update(test_storage):
     profile.ichbin_message_id = 123
     profile.local_kicked_timestamp = 2.0
     profile.ichbin_request_timestamp = 3.0
+    profile.first_name_when_joining = "first name"
+    profile.last_name_when_joining = "last name"
     test_storage.save_profile(profile)
 
     # Retrieve the saved profile
     retrieved_profile = test_storage.get_profile(user_key)
 
     # Check if the retrieved profile matches the updated profile
-    assert retrieved_profile.user_key == profile.user_key
-    assert retrieved_profile.ichbin_message == profile.ichbin_message
+    assert retrieved_profile == profile
 
 
-def test_get_profile(test_storage):
+def test_get_profile(test_storage: SqliteUserStorage) -> None:
     # Create a user profile
     user_key = UserKey(user_id=1, chat_id=1)
     profile = UserProfile(user_key=user_key, ichbin_message="Hello, world!")
@@ -67,11 +70,10 @@ def test_get_profile(test_storage):
     retrieved_profile = test_storage.get_profile(user_key)
 
     # Check if the retrieved profile matches the original profile
-    assert retrieved_profile.user_key == profile.user_key
-    assert retrieved_profile.ichbin_message == profile.ichbin_message
+    assert retrieved_profile == profile
 
 
-def test_get_users_to_kick(test_storage):
+def test_get_users_to_kick(test_storage: SqliteUserStorage) -> None:
     # Create user profiles
     user_key1 = UserKey(user_id=1, chat_id=1)
     profile1 = UserProfile(user_key=user_key1, ichbin_request_timestamp=1.0)
