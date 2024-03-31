@@ -2,10 +2,11 @@ import asyncio
 import logging
 import time
 import re
-from typing import Mapping
+from typing import Mapping, Any
 import aiogram
 import telethon
 import aiogram.utils.formatting
+from datetime import timedelta
 from welcome_bot_app.event_storage import SqliteEventStorage
 from welcome_bot_app.model import (
     Event,
@@ -30,10 +31,16 @@ PLEASE_INTRODUCE_TEXT = """Добрый день, @USER
 
 По желанию добавьте: какие у Вас интересы/хобби, откуда Вы, как узнали о группе, собираетесь ли прийти на наши встречи."""
 
+STILL_PLEASE_INTRODUCE_AFTER_REJOINING_TEXT = """@USER, Вы уже были у нас в чате, но не представились.
+
+У вас осталось @HOURS_LEFT часов, чтобы это сделать. Пожалуйста, представьтесь и не забудьте указать тег #ichbin 😊"""
+
 WELCOME_TEXT = """Добро пожаловать, @USER
 Типа у нас ещё есть всякие чаты."""
 
 USER_IS_KICKED_TEXT = """@USER молчит и покидает чат."""
+
+ICHBIN_WAITING_TIMEDELTA = timedelta(days=3)
 
 
 def _create_user_mention(user_id: int, name: str) -> TextMention:
@@ -47,9 +54,9 @@ def _create_user_mention(user_id: int, name: str) -> TextMention:
     )
 
 
-def _create_message_text(text: str, substitutions: Mapping[str, TextMention]) -> Text:
-    parts = re.split(r"(\@[A-Z]+)", text)
-    body: list[str | TextMention] = []
+def _create_message_text(text: str, substitutions: Mapping[str, Any]) -> Text:
+    parts = re.split(r"(\@[A-Z_]+)", text)
+    body: list[Any] = []
     for part in parts:
         if part.startswith("@") and part[1:] in substitutions:
             body.append(substitutions[part[1:]])
@@ -91,6 +98,7 @@ class EventProcessor:
 
     async def run(self) -> None:
         while True:
+            # TODO: Override SIGINT/SIGTERM - we should stop gracefully.
             try:
                 event: Event = await self._event_queue.get()
             except asyncio.CancelledError:
@@ -153,17 +161,42 @@ class EventProcessor:
                 event.user_key,
             )
             # TODO: If you have like 10 minutes left, bump the timeout to 2 hours, so that people can have time to write about them.
+            # This requires changing DB schema.
+            will_be_kicked_at_timestamp = (
+                user_profile.ichbin_request_timestamp
+                + ICHBIN_WAITING_TIMEDELTA.total_seconds()
+            )
+            welcome_again_message = _create_message_text(
+                STILL_PLEASE_INTRODUCE_AFTER_REJOINING_TEXT,
+                {
+                    "USER": _create_user_mention(
+                        event.user_key.user_id, event.user_info.first_name
+                    ),
+                    "HOURS_LEFT": int(
+                        (will_be_kicked_at_timestamp - event.local_timestamp) / 3600
+                    ),
+                },
+            )
             await self._bot.send_message(
                 event.user_key.chat_id,
-                "Welcome, user! You still have to write the #ichbin, or I'll kick you.",
+                welcome_again_message.as_html(),
+                parse_mode=ParseMode.HTML,
             )
             return
         user_profile.first_name_when_joining = event.user_info.first_name
         user_profile.last_name_when_joining = event.user_info.last_name
-        # XXX: We first write the message, then try to save to the database.
+        please_introduce_content = _create_message_text(
+            PLEASE_INTRODUCE_TEXT,
+            {
+                "USER": _create_user_mention(
+                    event.user_key.user_id, event.user_info.first_name
+                )
+            },
+        )
         await self._bot.send_message(
             event.user_key.chat_id,
-            "Welcome, user! Write #ichbin during the next X days, or I'll kick you out.",
+            text=please_introduce_content.as_html(),
+            parse_mode=ParseMode.HTML,
         )
         user_profile.ichbin_request_timestamp = event.tg_timestamp
         logging.info(
@@ -247,7 +280,9 @@ class EventProcessor:
     async def _on_periodic(self, event: PeriodicEvent) -> None:
         # TODO: Magic number.
         # TODO: Warning, here we compare tg_timestamp with local_timestamp!
-        max_ichbin_request_timestamp = event.local_timestamp - 5.0
+        max_ichbin_request_timestamp = (
+            event.local_timestamp - ICHBIN_WAITING_TIMEDELTA.total_seconds()
+        )
         users_to_kick = self._user_storage.get_users_to_kick(
             max_ichbin_request_timestamp
         )
@@ -298,18 +333,18 @@ class EventProcessor:
             )
             return
         logging.info("Kicking user %s as they didn't write #ichbin in time.", user_key)
-        # TODO: Adjust timedelta.
+        # TODO: Adjust timedelta, telegram docs say that if it's less than 30sec, or longer than some number, it will be a perma-ban.
         # DO_NOT_SUBMIT
-        # await self._bot.ban_chat_member(
-        #     chat_id=user_profile.user_key.chat_id,
-        #     user_id=user_profile.user_key.user_id,
-        #     until_date=datetime.timedelta(minutes=3),
-        # )
+        await self._bot.ban_chat_member(
+            chat_id=user_profile.user_key.chat_id,
+            user_id=user_profile.user_key.user_id,
+            until_date=timedelta(minutes=3),
+        )
         # TODO: Test how the ban above works.
         # TODO: Find out when we should unban.
         # # Unban immediately, so that they could join again.
         # await self._bot.unban_chat_member(user_profile.chat_id, user_profile.user_id, only_if_banned=True)
-        logging.info("Kicked user %s, saving result into the database.")
+        logging.info("Kicked user %s, saving result into the database.", user_key)
         user_profile.local_kicked_timestamp = local_timestamp
         self._user_storage.save_profile(user_profile)
         logging.info(
@@ -317,7 +352,7 @@ class EventProcessor:
         )
         first_name = user_profile.first_name_when_joining
         if first_name is None:
-            first_name = "user_id:%s" % user_key.user_id
+            first_name = "{user_id:%s}" % user_key.user_id
         content = _create_message_text(
             USER_IS_KICKED_TEXT,
             {"USER": _create_user_mention(user_key.user_id, first_name)},
