@@ -22,7 +22,9 @@ repos:
     hooks:
     -   id: system
         name: local_mypy
-        entry: /usr/bin/python3 -m pipenv run mypy
+        entry: /usr/bin/python3 -m pipenv run mypy src/welcome_bot_app
+        pass_filenames: false
+        always_run: true
         language: system
         files: \.py$
   # Pytest hook
@@ -31,5 +33,8 @@ repos:
     -   id: system
         name: local_pytest
         entry: /usr/bin/python3 -m pipenv run pytest
+        pass_filenames: false
+        always_run: true
+        types: [python]
         language: system
         files: \.py$

@@ -23,4 +23,3 @@ CMD pipenv run python -m welcome_bot_app \
   --telethon-api-id-file /run/secrets/TELETHON_API_ID \
   --telethon-api-hash-file /run/secrets/TELETHON_API_HASH \
   --telethond-session-file /run/secrets/TELETHON_SESSION
-

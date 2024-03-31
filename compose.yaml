@@ -10,6 +10,9 @@ services:
 secrets:
   BOT_TOKEN:
     file: ./secrets/BOT_TOKEN
+  TELETHON_API_ID:
     file: ./secrets/TELETHON_API_ID
+  TELETHON_API_HASH:
     file: ./secrets/TELETHON_API_HASH
+  TELETHON_SESSION:
     file: ./secrets/TELETHON_SESSION

@@ -315,10 +315,12 @@ class EventProcessor:
         logging.info(
             "Saved information about the kick of user %s into the database.", user_key
         )
-        # TODO: Get user first_name here.
+        first_name = user_profile.first_name_when_joining
+        if first_name is None:
+            first_name = "user_id:%s" % user_key.user_id
         content = _create_message_text(
             USER_IS_KICKED_TEXT,
-            {"USER": _create_user_mention(user_key.user_id, "TODO: FIRST NAME")},
+            {"USER": _create_user_mention(user_key.user_id, first_name)},
         )
         await self._bot.send_message(
             user_key.chat_id,
