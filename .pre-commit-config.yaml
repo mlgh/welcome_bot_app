@@ -17,3 +17,11 @@ repos:
       args: [ --fix ]
     # Run the formatter.
     - id: ruff-format
+  # Mypy hook
+-   repo: local
+    hooks:
+    -   id: system
+        name: pipenv
+        entry: python3 -m pipenv run mypy
+        language: system
+        files: \.py$
