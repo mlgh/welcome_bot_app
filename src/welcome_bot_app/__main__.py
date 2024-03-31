@@ -67,9 +67,13 @@ async def main():
         bot, telethon_client, event_storage=event_storage, user_storage=user_storage
     )
 
-    bot_task = asyncio.create_task(bot_api_loop.bot_api_main(bot, event_processor, event_storage = event_storage))
+    bot_task = asyncio.create_task(
+        bot_api_loop.bot_api_main(bot, event_processor, event_storage=event_storage)
+    )
     telethon_task = asyncio.create_task(
-        telethon_loop.telethon_main(telethon_client, event_processor)
+        telethon_loop.telethon_main(
+            telethon_client, event_processor, event_storage=event_storage
+        )
     )
     event_processor_task = asyncio.create_task(event_processor.run())
 

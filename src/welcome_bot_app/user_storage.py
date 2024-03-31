@@ -9,6 +9,7 @@ class SqliteUserStorage:
         self._initialize_database()
 
     def _initialize_database(self):
+        self._conn.execute("PRAGMA strict=ON")
         self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS UserProfiles (
                     id INTEGER PRIMARY KEY NOT NULL,
@@ -18,7 +19,7 @@ class SqliteUserStorage:
                     ichbin_message_timestamp REAL,
                     ichbin_message_id INTEGER,
                     ichbin_request_timestamp REAL,
-                    kicked_timestamp REAL
+                    local_kicked_timestamp REAL
                 )
             """)
         self._conn.execute("""
@@ -30,7 +31,7 @@ class SqliteUserStorage:
                 CREATE UNIQUE INDEX IF NOT EXISTS users_to_kick
                            ON UserProfiles (ichbin_request_timestamp ASC, user_id, chat_id)
                            WHERE ichbin_request_timestamp IS NOT NULL
-                                AND ichbin_message_timestamp IS NULL AND kicked_timestamp IS NULL;
+                                AND ichbin_message_timestamp IS NULL AND local_kicked_timestamp IS NULL;
             """)
 
     def get_users_to_kick(self, max_ichbin_request_timestamp) -> List[UserKey]:
@@ -41,7 +42,7 @@ class SqliteUserStorage:
                        FROM UserProfiles
                        WHERE ichbin_request_timestamp IS NOT NULL
                             AND ichbin_message_timestamp IS NULL
-                            AND kicked_timestamp IS NULL
+                            AND local_kicked_timestamp IS NULL
                             AND ichbin_request_timestamp <= ?
                        """,
             (max_ichbin_request_timestamp,),
@@ -57,7 +58,7 @@ class SqliteUserStorage:
                               ichbin_message_timestamp,
                               ichbin_message_id,
                               ichbin_request_timestamp,
-                              kicked_timestamp
+                              local_kicked_timestamp
                        FROM UserProfiles
                        WHERE user_id = ? AND chat_id = ?
                        """,
@@ -66,7 +67,13 @@ class SqliteUserStorage:
         row = cursor.fetchone()
         result = UserProfile(user_key=user_key)
         if row is not None:
-            result.ichbin_message, result.ichbin_message_timestamp, result.ichbin_message_id, result.ichbin_request_timestamp, result.kicked_timestamp = row
+            (
+                result.ichbin_message,
+                result.ichbin_message_timestamp,
+                result.ichbin_message_id,
+                result.ichbin_request_timestamp,
+                result.local_kicked_timestamp,
+            ) = row
         return result
 
     def save_profile(self, profile: UserProfile):
@@ -74,7 +81,7 @@ class SqliteUserStorage:
             self._conn.execute(
                 """
                 INSERT INTO UserProfiles
-                    (user_id, chat_id, ichbin_message, ichbin_message_timestamp, ichbin_message_id, ichbin_request_timestamp, kicked_timestamp)
+                    (user_id, chat_id, ichbin_message, ichbin_message_timestamp, ichbin_message_id, ichbin_request_timestamp, local_kicked_timestamp)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (user_id, chat_id)
                 DO UPDATE SET
@@ -82,7 +89,7 @@ class SqliteUserStorage:
                     ichbin_message_timestamp=excluded.ichbin_message_timestamp,
                     ichbin_message_id=excluded.ichbin_message_id,
                     ichbin_request_timestamp=excluded.ichbin_request_timestamp,
-                    kicked_timestamp=excluded.kicked_timestamp
+                    local_kicked_timestamp=excluded.local_kicked_timestamp
                 """,
                 (
                     profile.user_key.user_id,
@@ -91,6 +98,6 @@ class SqliteUserStorage:
                     profile.ichbin_message_timestamp,
                     profile.ichbin_message_id,
                     profile.ichbin_request_timestamp,
-                    profile.kicked_timestamp,
+                    profile.local_kicked_timestamp,
                 ),
             )

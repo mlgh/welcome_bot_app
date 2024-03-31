@@ -3,10 +3,12 @@ import sqlite3
 import aiogram.types
 from welcome_bot_app.model import Event
 
-def _full_type_name(obj):
-    return type(obj).__module__ + '.' + type(obj).__qualname__
 
-def _smart_str(obj, visited = None):
+def _full_type_name(obj):
+    return type(obj).__module__ + "." + type(obj).__qualname__
+
+
+def _smart_str(obj, visited=None):
     if visited is None:
         visited = set()
     if id(obj) in visited:
@@ -37,16 +39,11 @@ def _smart_str(obj, visited = None):
                 return "%s(%s)" % (obj_name, obj_fields)
             else:
                 obj_fields = ", ".join(
-                    f"{k}: {_smart_str(v, visited)}"
-                    for k, v in obj_dict.items()
+                    f"{k}: {_smart_str(v, visited)}" for k, v in obj_dict.items()
                 )
                 return "{%s}" % obj_fields
         elif isinstance(obj, list):
-            return (
-                "["
-                + ", ".join(_smart_str(x, visited) for x in obj)
-                + "]"
-            )
+            return "[" + ", ".join(_smart_str(x, visited) for x in obj) + "]"
         elif isinstance(obj, dict):
             if "_" in obj:
                 obj_name = obj["_"]
@@ -58,16 +55,17 @@ def _smart_str(obj, visited = None):
                 return "%s(%s)" % (obj_name, obj_fields)
             else:
                 obj_fields = ", ".join(
-                    f"{k}: {_smart_str(v, visited)}"
-                    for k, v in obj.items()
+                    f"{k}: {_smart_str(v, visited)}" for k, v in obj.items()
                 )
                 return "{%s}" % obj_fields
     finally:
         visited.remove(id(obj))
     return repr(obj)
 
-def _bot_api_msg_to_str(event : aiogram.types.Message):
+
+def _bot_api_msg_to_str(event: aiogram.types.Message):
     return _smart_str(event)
+
 
 class SqliteEventStorage:
     def __init__(self, file_path):
@@ -75,33 +73,55 @@ class SqliteEventStorage:
         self._initialize_database()
 
     def _initialize_database(self):
+        self._conn.execute("PRAGMA strict=ON")
         self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS Events (
                     id INTEGER PRIMARY KEY,
                     -- Type of the event.
                     event_type TEXT,
                     -- Timestamp when the event was received.
-                    timestamp REAL,
+                    local_timestamp REAL,
                     -- User-readable event representation.
                     event_text TEXT
                 )
         """)
 
-    def _add_event(self, event_type : str, timestamp : float, event_text : str):
+    def _add_event(self, event_type: str, local_timestamp: float, event_text: str):
         try:
             with self._conn:
                 self._conn.execute(
-                    "INSERT INTO Events (event_type, timestamp, event_text) VALUES (?, ?, ?)",
-                    (event_type, timestamp, event_text),
+                    "INSERT INTO Events (event_type, local_timestamp, event_text) VALUES (?, ?, ?)",
+                    (event_type, local_timestamp, event_text),
                 )
         except sqlite3.IntegrityError:
             logging.error(
-                "Error while adding event (%r, %r, %r)", event_type, timestamp, event_text,
-                exc_info=True
+                "Error while adding event (%r, %r, %r)",
+                event_type,
+                local_timestamp,
+                event_text,
+                exc_info=True,
             )
 
-    def log_raw_bot_api_event(self, event : aiogram.types.Message, timestamp : float):
-        self._add_event(_full_type_name(event), timestamp, _bot_api_msg_to_str(event))
+    def log_raw_bot_api_event(
+        self, event: aiogram.types.Message, local_timestamp: float
+    ):
+        try:
+            self._add_event(
+                _full_type_name(event), local_timestamp, _bot_api_msg_to_str(event)
+            )
+        except Exception:
+            logging.error("Failed to log raw Bot API event: %s", event, exc_info=True)
 
-    def log_event(self, event : Event):
-        self._add_event(_full_type_name(event), event.timestamp, str(event))
+    def log_raw_telethon_event(self, event, local_timestamp: float):
+        try:
+            self._add_event(
+                _full_type_name(event), local_timestamp, _bot_api_msg_to_str(event)
+            )
+        except Exception:
+            logging.error("Failed to log raw Telethon event: %s", event, exc_info=True)
+
+    def log_event(self, event: Event):
+        try:
+            self._add_event(_full_type_name(event), event.local_timestamp, str(event))
+        except Exception:
+            logging.error("Failed to log event: %s", event, exc_info=True)

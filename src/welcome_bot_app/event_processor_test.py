@@ -1,7 +1,12 @@
 import pytest
 from unittest.mock import MagicMock
 from welcome_bot_app.event_processor import EventProcessor
-from welcome_bot_app.model import UserKey, StopEvent, BotApiNewChatMember, BotApiNewTextMessage, BotApiChatMemberLeft
+from welcome_bot_app.model import (
+    UserKey,
+    StopEvent,
+    BotApiNewChatMember,
+)
+
 
 @pytest.fixture
 def event_processor():
@@ -11,12 +16,17 @@ def event_processor():
     user_storage = MagicMock()
     return EventProcessor(bot, telethon_client, event_storage, user_storage)
 
+
 @pytest.mark.asyncio
 async def test_on_bot_api_new_chat_member(event_processor):
-    await event_processor.put_event(BotApiNewChatMember(timestamp = 1, user_key = UserKey(user_id=1, chat_id=10)))
-    await event_processor.put_event(StopEvent(timestamp=2))
+    await event_processor.put_event(
+        BotApiNewChatMember(
+            local_timestamp=1, user_key=UserKey(user_id=1, chat_id=10), tg_timestamp=1
+        )
+    )
+    await event_processor.put_event(StopEvent(local_timestamp=2))
     await event_processor.run()
-    # Add your assertions here
+
 
 # def test_on_bot_api_new_text_message(event_processor):
 #     event = BotApiNewTextMessage()

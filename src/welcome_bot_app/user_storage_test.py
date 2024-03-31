@@ -16,7 +16,7 @@ def test_save_profile(test_storage):
         ichbin_message="Hello, world!",
         ichbin_message_timestamp=1.0,
         ichbin_message_id=123,
-        kicked_timestamp=2.0,
+        local_kicked_timestamp=2.0,
         ichbin_request_timestamp=3.0,
     )
 
@@ -43,7 +43,7 @@ def test_save_profile_update(test_storage):
     profile.ichbin_message = "Goodbye, world!"
     profile.ichbin_message_timestamp = 1.0
     profile.ichbin_message_id = 123
-    profile.kicked_timestamp = 2.0
+    profile.local_kicked_timestamp = 2.0
     profile.ichbin_request_timestamp = 3.0
     test_storage.save_profile(profile)
 
@@ -83,10 +83,10 @@ def test_get_users_to_kick(test_storage):
     user_key3 = UserKey(user_id=3, chat_id=3)
     profile3 = UserProfile(user_key=user_key3, ichbin_request_timestamp=3.0)
 
-    # Ignored because kicked_timestamp is set.
+    # Ignored because local_kicked_timestamp is set.
     user_key4 = UserKey(user_id=4, chat_id=4)
     profile4 = UserProfile(
-        user_key=user_key4, kicked_timestamp=1.0, ichbin_request_timestamp=2.0
+        user_key=user_key4, local_kicked_timestamp=1.0, ichbin_request_timestamp=2.0
     )
 
     # Ignored because ichbin_message_timestamp is set.

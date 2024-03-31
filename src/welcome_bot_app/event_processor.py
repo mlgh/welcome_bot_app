@@ -14,46 +14,49 @@ from welcome_bot_app.model import (
     BotApiChatMemberLeft,
     BotApiNewTextMessage,
     StopEvent,
-    UserKey, BotApiUserInfo
+    UserKey,
 )
 from welcome_bot_app.user_storage import SqliteUserStorage
 
 from aiogram.utils.formatting import Text, TextMention
 from aiogram.enums.parse_mode import ParseMode
 
-PLEASE_INTRODUCE_TEXT = '''Добрый день, @USER
+PLEASE_INTRODUCE_TEXT = """Добрый день, @USER
 Пожалуйста, представьтесь 😊:
 как зовут по имени, где и чему учитесь (или кем работаете).
 ! Обязательно добавьте #ichbin в сообщение.
 
 Лучше представиться прямо сейчас, чтобы не забыть, а то бот удалит через трое суток😈
 
-По желанию добавьте: какие у Вас интересы/хобби, откуда Вы, как узнали о группе, собираетесь ли прийти на наши встречи.'''
+По желанию добавьте: какие у Вас интересы/хобби, откуда Вы, как узнали о группе, собираетесь ли прийти на наши встречи."""
 
-WELCOME_TEXT = '''Добро пожаловать, @USER
-Типа у нас ещё есть всякие чаты.'''
+WELCOME_TEXT = """Добро пожаловать, @USER
+Типа у нас ещё есть всякие чаты."""
 
-USER_IS_KICKED_TEXT = '''@USER молчит и покидает чат.'''
+USER_IS_KICKED_TEXT = """@USER молчит и покидает чат."""
 
-def _create_user_mention(user_id : int, name : str):
+
+def _create_user_mention(user_id: int, name: str):
     return TextMention(
-            name,
-            user=aiogram.types.User(
-                id=user_id,
-                is_bot=False,
-                first_name='',
-            ),
-        )
+        name,
+        user=aiogram.types.User(
+            id=user_id,
+            is_bot=False,
+            first_name="",
+        ),
+    )
 
-def _create_message_text(text: str, substitutions : dict):
-    parts = re.split(r'(\@[A-Z]+)', text)
+
+def _create_message_text(text: str, substitutions: dict):
+    parts = re.split(r"(\@[A-Z]+)", text)
     body = []
     for part in parts:
-        if part.startswith('@') and part[1:] in substitutions:
+        if part.startswith("@") and part[1:] in substitutions:
             body.append(substitutions[part[1:]])
         else:
             body.append(part)
     return Text(*body)
+
 
 class EventProcessor:
     def __init__(
@@ -68,25 +71,25 @@ class EventProcessor:
         self._event_storage = event_storage
         self._user_storage = user_storage
 
-        self._event_queue = asyncio.Queue()
+        self._event_queue: asyncio.Queue = asyncio.Queue()
 
     async def periodic_event_generator(self, period: float):
         """Helper function for periodic event generation."""
         while True:
             logging.info("Periodic task")
-            timestamp = time.time()
+            local_timestamp = time.time()
             try:
-                await self.put_event(PeriodicEvent(timestamp=timestamp))
+                await self.put_event(PeriodicEvent(local_timestamp=local_timestamp))
             except asyncio.CancelledError:
                 logging.info("periodic cancelled")
                 break
             # Sleep until (current_time + period)
-            await asyncio.sleep(timestamp + period - time.time())
+            await asyncio.sleep(local_timestamp + period - time.time())
 
     async def put_event(self, event: Event):
         await self._event_queue.put(event)
 
-    async def run(self):
+    async def run(self) -> None:
         while True:
             try:
                 event: Event = await self._event_queue.get()
@@ -109,10 +112,7 @@ class EventProcessor:
                 break
 
             if not isinstance(event, PeriodicEvent):
-                try:
-                    self._event_storage.log_event(event)
-                except Exception:
-                    logging.error("Error while storing event %s", event, exc_info=True)
+                self._event_storage.log_event(event)
             try:
                 await self._handle_event(event)
             except asyncio.CancelledError:
@@ -140,7 +140,7 @@ class EventProcessor:
     async def _on_bot_api_new_chat_member(self, event: BotApiNewChatMember):
         logging.info("New chat member: %s", event)
         user_profile = self._user_storage.get_profile(event.user_key)
-        if user_profile.ichbin_message is not None:
+        if user_profile.ichbin_message_timestamp is not None:
             logging.info(
                 "User %s already has an existing #ichbin message", event.user_key
             )
@@ -156,7 +156,12 @@ class EventProcessor:
                 "Welcome, user! You still have to write the #ichbin, or I'll kick you.",
             )
             return
-        user_profile.ichbin_request_timestamp = event.timestamp
+        # XXX: We first write the message, then try to save to the database.
+        await self._bot.send_message(
+            event.user_key.chat_id,
+            "Welcome, user! Write #ichbin during the next X days, or I'll kick you out.",
+        )
+        user_profile.ichbin_request_timestamp = event.tg_timestamp
         logging.info(
             "Updating #ichbin request timestamp of user %s to %s",
             event.user_key,
@@ -168,15 +173,11 @@ class EventProcessor:
             event.user_key,
             user_profile.ichbin_request_timestamp,
         )
-        await self._bot.send_message(
-            event.user_key.chat_id,
-            "Welcome, user! Write #ichbin during the next X days, or I'll kick you out.",
-        )
 
-    async def on_bot_api_chat_member_left(self, event: BotApiChatMemberLeft):
+    async def _on_bot_api_chat_member_left(self, event: BotApiChatMemberLeft) -> None:
         logging.info("Chat member left: %s", event.user_key)
 
-    async def _on_bot_api_new_text_message(self, event: BotApiNewTextMessage):
+    async def _on_bot_api_new_text_message(self, event: BotApiNewTextMessage) -> None:
         if "#ichbin" not in event.text:
             return
         logging.info("User %s wrote #ichbin.", event.user_key)
@@ -187,7 +188,7 @@ class EventProcessor:
             )
             return
         user_profile.ichbin_message = event.text
-        user_profile.ichbin_message_timestamp = event.timestamp
+        user_profile.ichbin_message_timestamp = event.tg_timestamp
         logging.info(
             "Updating #ichbin message of user %s to %s", event.user_key, event.text
         )
@@ -206,7 +207,14 @@ class EventProcessor:
         # TODO: Make sure that we keep only a single ichbin-welcoming message?
 
         # await self._bot.send_message(event.user_key.chat_id, f"Welcome, user! You are now a member of the chat.", reply_to_message_id = event.message_id)
-        content = _create_message_text(WELCOME_TEXT, {'USER' : _create_user_mention(event.user_key.user_id, event.user_info.first_name)})
+        content = _create_message_text(
+            WELCOME_TEXT,
+            {
+                "USER": _create_user_mention(
+                    event.user_key.user_id, event.user_info.first_name
+                )
+            },
+        )
 
         await self._bot.send_message(
             event.user_key.chat_id,
@@ -220,13 +228,22 @@ class EventProcessor:
         if user_profile.ichbin_message_id is not None:
             # TODO: Can use telethon to remove messages older than 48 hours?
             try:
-                await self._bot.delete_message(chat_id = user_profile.user_key.chat_id, message_id=user_profile.ichbin_message_id)
+                await self._bot.delete_message(
+                    chat_id=user_profile.user_key.chat_id,
+                    message_id=user_profile.ichbin_message_id,
+                )
             except Exception:
-                logging.error("Failed to delete message %s by user %s", user_profile.ichbin_message_id, user_profile.user_key, exc_info=True)
+                logging.error(
+                    "Failed to delete message %s by user %s",
+                    user_profile.ichbin_message_id,
+                    user_profile.user_key,
+                    exc_info=True,
+                )
 
-    async def _on_periodic(self, event: PeriodicEvent):
+    async def _on_periodic(self, event: PeriodicEvent) -> None:
         # TODO: Magic number.
-        max_ichbin_request_timestamp = event.timestamp - 5.0
+        # TODO: Warning, here we compare tg_timestamp with local_timestamp!
+        max_ichbin_request_timestamp = event.local_timestamp - 5.0
         users_to_kick = self._user_storage.get_users_to_kick(
             max_ichbin_request_timestamp
         )
@@ -234,7 +251,7 @@ class EventProcessor:
             try:
                 await self._verify_and_kick_user(
                     user_key,
-                    event_timestamp=event.timestamp,
+                    local_timestamp=event.local_timestamp,
                     max_ichbin_request_timestamp=max_ichbin_request_timestamp,
                 )
             except Exception:
@@ -244,13 +261,11 @@ class EventProcessor:
     async def _verify_and_kick_user(
         self,
         user_key: UserKey,
-        event_timestamp: float,
+        local_timestamp: float,
         max_ichbin_request_timestamp: float,
-    ):
+    ) -> None:
         logging.info("Attempting to kick user %s", user_key)
-        user_profile = self._user_storage.get_profile(
-            user_key.user_id, user_key.chat_id
-        )
+        user_profile = self._user_storage.get_profile(user_key)
         if user_profile.ichbin_message_timestamp is not None:
             logging.warning(
                 "User %s wrote #ichbin at %s, skipping",
@@ -260,20 +275,20 @@ class EventProcessor:
         if user_profile.ichbin_request_timestamp is None:
             logging.warning(
                 "User %s didn't get a request to write #ichbin, skipping",
-                user_profile.user_id,
+                user_profile.user_key,
             )
             return
-        if user_profile.kicked_timestamp is not None:
+        if user_profile.local_kicked_timestamp is not None:
             logging.warning(
                 "User %s was already kicked at %s, skipping",
-                user_profile.user_id,
-                user_profile.kicked_timestamp,
+                user_profile.user_key,
+                user_profile.local_kicked_timestamp,
             )
             return
         if user_profile.ichbin_request_timestamp > max_ichbin_request_timestamp:
             logging.warning(
                 "User %s is still in grace period, skipping: %s > %s",
-                user_profile.user_id,
+                user_profile.user_key,
                 user_profile.ichbin_request_timestamp,
                 max_ichbin_request_timestamp,
             )
@@ -281,8 +296,8 @@ class EventProcessor:
         logging.info("Kicking user %s as they didn't write #ichbin in time.", user_key)
         # TODO: Adjust timedelta.
         await self._bot.ban_chat_member(
-            user_profile.chat_id,
-            user_profile.user_id,
+            chat_id=user_profile.user_key.chat_id,
+            user_id=user_profile.user_key.user_id,
             until_date=datetime.timedelta(minutes=3),
         )
         # TODO: Test how the ban above works.
@@ -290,13 +305,16 @@ class EventProcessor:
         # # Unban immediately, so that they could join again.
         # await self._bot.unban_chat_member(user_profile.chat_id, user_profile.user_id, only_if_banned=True)
         logging.info("Kicked user %s, saving result into the database.")
-        user_profile.kicked_timestamp = event_timestamp
+        user_profile.local_kicked_timestamp = local_timestamp
         self._user_storage.save_profile(user_profile)
         logging.info(
             "Saved information about the kick of user %s into the database.", user_key
         )
         # TODO: Get user first_name here.
-        content = _create_message_text(USER_IS_KICKED_TEXT, {'USER' : _create_user_mention(user_key.user_id, 'TODO: FIRST NAME')})
+        content = _create_message_text(
+            USER_IS_KICKED_TEXT,
+            {"USER": _create_user_mention(user_key.user_id, "TODO: FIRST NAME")},
+        )
         await self._bot.send_message(
             user_key.chat_id,
             text=content.as_html(),

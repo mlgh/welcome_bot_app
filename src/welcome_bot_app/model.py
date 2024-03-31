@@ -19,7 +19,7 @@ class UserProfile:
     ichbin_message_timestamp: Optional[float] = None
     ichbin_message_id: Optional[int] = None
     ichbin_request_timestamp: Optional[float] = None
-    kicked_timestamp: Optional[float] = None
+    local_kicked_timestamp: Optional[float] = None
 
 
 @dataclass
@@ -32,7 +32,8 @@ class BotApiUserInfo:
 class Event:
     """Base class for all external events."""
 
-    timestamp: float
+    # UTC timestamp when this even was created
+    local_timestamp: float
 
 
 @dataclass
@@ -50,6 +51,7 @@ class BotApiNewTextMessage(Event):
     user_info: BotApiUserInfo
     text: str
     message_id: int
+    tg_timestamp: float
 
 
 @dataclass
@@ -57,6 +59,7 @@ class BotApiNewChatMember(Event):
     """New chat member."""
 
     user_key: UserKey
+    tg_timestamp: float
 
 
 @dataclass
@@ -64,7 +67,19 @@ class BotApiChatMemberLeft(Event):
     """Chat member left."""
 
     user_key: UserKey
+    tg_timestamp: float
 
+
+@dataclass
 class StopEvent(Event):
     """Stop processing events and exit. Used only for testing."""
+
     pass
+
+
+@dataclass
+class TelethonNewMessage(Event):
+    user_key: UserKey
+    text: str
+    message_id: int
+    tg_timestamp: float
