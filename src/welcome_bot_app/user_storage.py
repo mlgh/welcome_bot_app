@@ -4,11 +4,11 @@ from welcome_bot_app.model import UserKey, UserProfile
 
 
 class SqliteUserStorage:
-    def __init__(self, file_path):
+    def __init__(self, file_path : str) -> None:
         self._conn = sqlite3.connect(file_path)
         self._initialize_database()
 
-    def _initialize_database(self):
+    def _initialize_database(self) -> None:
         self._conn.execute("PRAGMA strict=ON")
         self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS UserProfiles (
@@ -34,7 +34,7 @@ class SqliteUserStorage:
                                 AND ichbin_message_timestamp IS NULL AND local_kicked_timestamp IS NULL;
             """)
 
-    def get_users_to_kick(self, max_ichbin_request_timestamp) -> List[UserKey]:
+    def get_users_to_kick(self, max_ichbin_request_timestamp : float) -> List[UserKey]:
         cursor = self._conn.cursor()
         cursor.execute(
             """
@@ -76,7 +76,7 @@ class SqliteUserStorage:
             ) = row
         return result
 
-    def save_profile(self, profile: UserProfile):
+    def save_profile(self, profile: UserProfile) -> None:
         with self._conn:
             self._conn.execute(
                 """

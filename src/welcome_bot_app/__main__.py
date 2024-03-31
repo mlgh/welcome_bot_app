@@ -13,7 +13,7 @@ from welcome_bot_app.event_storage import SqliteEventStorage
 from welcome_bot_app.user_storage import SqliteUserStorage
 
 
-async def main():
+async def main() -> None:
     parser = argparse.ArgumentParser(description="Welcoming Telegram bot.")
     parser.add_argument(
         "--log-level",

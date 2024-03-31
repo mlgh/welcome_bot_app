@@ -1,4 +1,5 @@
 import aiogram.types
+from typing import Generator
 from aiogram import Bot, Dispatcher
 import time
 import logging
@@ -12,10 +13,11 @@ from welcome_bot_app.model import (
     BotApiNewTextMessage,
     UserKey,
     BotApiUserInfo,
+    Event,
 )
 
 
-def extract_bot_events(message: aiogram.types.Message, local_timestamp: float):
+def extract_bot_events(message: aiogram.types.Message, local_timestamp: float) -> Generator[Event, None, None] :
     if message.content_type == aiogram.types.ContentType.NEW_CHAT_MEMBERS:
         if message.new_chat_members is None:
             logging.error(
@@ -72,7 +74,7 @@ async def bot_api_main(
         dp = Dispatcher()
 
         @dp.message()
-        async def message_handler(message: aiogram.types.Message):
+        async def message_handler(message: aiogram.types.Message) -> None:
             local_timestamp = time.time()
             event_storage.log_raw_bot_api_event(message, local_timestamp)
             # TODO: Veriy: if the message handler ends with exception, will Telegram

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 import re
+from typing import Mapping
 import aiogram
 import datetime
 import telethon
@@ -36,7 +37,7 @@ WELCOME_TEXT = """Добро пожаловать, @USER
 USER_IS_KICKED_TEXT = """@USER молчит и покидает чат."""
 
 
-def _create_user_mention(user_id: int, name: str):
+def _create_user_mention(user_id: int, name: str) -> TextMention:
     return TextMention(
         name,
         user=aiogram.types.User(
@@ -47,9 +48,9 @@ def _create_user_mention(user_id: int, name: str):
     )
 
 
-def _create_message_text(text: str, substitutions: dict):
+def _create_message_text(text: str, substitutions: Mapping[str, TextMention]) -> Text:
     parts = re.split(r"(\@[A-Z]+)", text)
-    body = []
+    body : list[str | TextMention] = []
     for part in parts:
         if part.startswith("@") and part[1:] in substitutions:
             body.append(substitutions[part[1:]])
@@ -71,9 +72,9 @@ class EventProcessor:
         self._event_storage = event_storage
         self._user_storage = user_storage
 
-        self._event_queue: asyncio.Queue = asyncio.Queue()
+        self._event_queue: asyncio.Queue[Event] = asyncio.Queue()
 
-    async def periodic_event_generator(self, period: float):
+    async def periodic_event_generator(self, period: float) -> None:
         """Helper function for periodic event generation."""
         while True:
             logging.info("Periodic task")
@@ -86,7 +87,7 @@ class EventProcessor:
             # Sleep until (current_time + period)
             await asyncio.sleep(local_timestamp + period - time.time())
 
-    async def put_event(self, event: Event):
+    async def put_event(self, event: Event) -> None:
         await self._event_queue.put(event)
 
     async def run(self) -> None:
@@ -126,7 +127,7 @@ class EventProcessor:
                 )
                 continue
 
-    async def _handle_event(self, event: Event):
+    async def _handle_event(self, event: Event) -> None:
         if isinstance(event, BotApiNewTextMessage):
             await self._on_bot_api_new_text_message(event)
         elif isinstance(event, BotApiNewChatMember):
@@ -137,7 +138,7 @@ class EventProcessor:
             logging.critical("BUG: Unknown event: %s, skipping.", event)
 
     # TODO: Actually contains business logic.
-    async def _on_bot_api_new_chat_member(self, event: BotApiNewChatMember):
+    async def _on_bot_api_new_chat_member(self, event: BotApiNewChatMember) -> None:
         logging.info("New chat member: %s", event)
         user_profile = self._user_storage.get_profile(event.user_key)
         if user_profile.ichbin_message_timestamp is not None:

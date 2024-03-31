@@ -12,12 +12,12 @@ async def telethon_main(
     client: telethon.TelegramClient,
     event_processor: EventProcessor,
     event_storage: SqliteEventStorage,
-):
+) -> None:
     try:
         async with client:
 
-            @client.on(telethon.events.NewMessage)
-            async def new_message_handler(event):
+            @client.on(telethon.events.NewMessage) # type: ignore
+            async def new_message_handler(event) -> None:
                 local_timestamp = time.time()
                 event_storage.log_raw_telethon_event(event, local_timestamp)
                 if not isinstance(event.from_id, telethon.types.PeerUser):

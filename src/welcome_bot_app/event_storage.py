@@ -1,14 +1,15 @@
 import logging
 import sqlite3
+from typing import Any, Mapping
 import aiogram.types
 from welcome_bot_app.model import Event
 
 
-def _full_type_name(obj):
+def _full_type_name(obj : Any) -> str:
     return type(obj).__module__ + "." + type(obj).__qualname__
 
 
-def _smart_str(obj, visited=None):
+def _smart_str(obj : Any, visited : set[int] | None = None) -> str:
     if visited is None:
         visited = set()
     if id(obj) in visited:
@@ -16,7 +17,7 @@ def _smart_str(obj, visited=None):
     try:
         visited.add(id(obj))
 
-        def is_not_empty(v):
+        def is_not_empty(v : Any) -> bool:
             return v is not None and v != [] and v != {}
 
         if hasattr(obj, "__repr_args__"):
@@ -63,16 +64,16 @@ def _smart_str(obj, visited=None):
     return repr(obj)
 
 
-def _bot_api_msg_to_str(event: aiogram.types.Message):
+def _bot_api_msg_to_str(event: aiogram.types.Message) -> str:
     return _smart_str(event)
 
 
 class SqliteEventStorage:
-    def __init__(self, file_path):
+    def __init__(self, file_path : str):
         self._conn = sqlite3.connect(file_path)
         self._initialize_database()
 
-    def _initialize_database(self):
+    def _initialize_database(self) -> None:
         self._conn.execute("PRAGMA strict=ON")
         self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS Events (
@@ -86,7 +87,7 @@ class SqliteEventStorage:
                 )
         """)
 
-    def _add_event(self, event_type: str, local_timestamp: float, event_text: str):
+    def _add_event(self, event_type: str, local_timestamp: float, event_text: str) -> None:
         try:
             with self._conn:
                 self._conn.execute(
@@ -104,7 +105,7 @@ class SqliteEventStorage:
 
     def log_raw_bot_api_event(
         self, event: aiogram.types.Message, local_timestamp: float
-    ):
+    ) -> None:
         try:
             self._add_event(
                 _full_type_name(event), local_timestamp, _bot_api_msg_to_str(event)
@@ -112,7 +113,7 @@ class SqliteEventStorage:
         except Exception:
             logging.error("Failed to log raw Bot API event: %s", event, exc_info=True)
 
-    def log_raw_telethon_event(self, event, local_timestamp: float):
+    def log_raw_telethon_event(self, event : Any, local_timestamp: float) -> None:
         try:
             self._add_event(
                 _full_type_name(event), local_timestamp, _bot_api_msg_to_str(event)
@@ -120,7 +121,7 @@ class SqliteEventStorage:
         except Exception:
             logging.error("Failed to log raw Telethon event: %s", event, exc_info=True)
 
-    def log_event(self, event: Event):
+    def log_event(self, event: Event) -> None:
         try:
             self._add_event(_full_type_name(event), event.local_timestamp, str(event))
         except Exception:
