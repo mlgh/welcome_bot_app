@@ -50,7 +50,7 @@ def _create_user_mention(user_id: int, name: str) -> TextMention:
 
 def _create_message_text(text: str, substitutions: Mapping[str, TextMention]) -> Text:
     parts = re.split(r"(\@[A-Z]+)", text)
-    body : list[str | TextMention] = []
+    body: list[str | TextMention] = []
     for part in parts:
         if part.startswith("@") and part[1:] in substitutions:
             body.append(substitutions[part[1:]])

@@ -1,15 +1,15 @@
 import logging
 import sqlite3
-from typing import Any, Mapping
+from typing import Any
 import aiogram.types
 from welcome_bot_app.model import Event
 
 
-def _full_type_name(obj : Any) -> str:
+def _full_type_name(obj: Any) -> str:
     return type(obj).__module__ + "." + type(obj).__qualname__
 
 
-def _smart_str(obj : Any, visited : set[int] | None = None) -> str:
+def _smart_str(obj: Any, visited: set[int] | None = None) -> str:
     if visited is None:
         visited = set()
     if id(obj) in visited:
@@ -17,7 +17,7 @@ def _smart_str(obj : Any, visited : set[int] | None = None) -> str:
     try:
         visited.add(id(obj))
 
-        def is_not_empty(v : Any) -> bool:
+        def is_not_empty(v: Any) -> bool:
             return v is not None and v != [] and v != {}
 
         if hasattr(obj, "__repr_args__"):
@@ -69,7 +69,7 @@ def _bot_api_msg_to_str(event: aiogram.types.Message) -> str:
 
 
 class SqliteEventStorage:
-    def __init__(self, file_path : str):
+    def __init__(self, file_path: str):
         self._conn = sqlite3.connect(file_path)
         self._initialize_database()
 
@@ -87,7 +87,9 @@ class SqliteEventStorage:
                 )
         """)
 
-    def _add_event(self, event_type: str, local_timestamp: float, event_text: str) -> None:
+    def _add_event(
+        self, event_type: str, local_timestamp: float, event_text: str
+    ) -> None:
         try:
             with self._conn:
                 self._conn.execute(
@@ -113,7 +115,7 @@ class SqliteEventStorage:
         except Exception:
             logging.error("Failed to log raw Bot API event: %s", event, exc_info=True)
 
-    def log_raw_telethon_event(self, event : Any, local_timestamp: float) -> None:
+    def log_raw_telethon_event(self, event: Any, local_timestamp: float) -> None:
         try:
             self._add_event(
                 _full_type_name(event), local_timestamp, _bot_api_msg_to_str(event)

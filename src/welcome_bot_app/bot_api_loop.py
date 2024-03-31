@@ -17,7 +17,9 @@ from welcome_bot_app.model import (
 )
 
 
-def extract_bot_events(message: aiogram.types.Message, local_timestamp: float) -> Generator[Event, None, None] :
+def extract_bot_events(
+    message: aiogram.types.Message, local_timestamp: float
+) -> Generator[Event, None, None]:
     if message.content_type == aiogram.types.ContentType.NEW_CHAT_MEMBERS:
         if message.new_chat_members is None:
             logging.error(

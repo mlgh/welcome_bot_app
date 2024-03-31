@@ -4,7 +4,7 @@ from welcome_bot_app.model import UserKey, UserProfile
 
 
 class SqliteUserStorage:
-    def __init__(self, file_path : str) -> None:
+    def __init__(self, file_path: str) -> None:
         self._conn = sqlite3.connect(file_path)
         self._initialize_database()
 
@@ -34,7 +34,7 @@ class SqliteUserStorage:
                                 AND ichbin_message_timestamp IS NULL AND local_kicked_timestamp IS NULL;
             """)
 
-    def get_users_to_kick(self, max_ichbin_request_timestamp : float) -> List[UserKey]:
+    def get_users_to_kick(self, max_ichbin_request_timestamp: float) -> List[UserKey]:
         cursor = self._conn.cursor()
         cursor.execute(
             """

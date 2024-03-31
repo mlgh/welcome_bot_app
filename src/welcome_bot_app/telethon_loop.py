@@ -16,7 +16,7 @@ async def telethon_main(
     try:
         async with client:
 
-            @client.on(telethon.events.NewMessage) # type: ignore
+            @client.on(telethon.events.NewMessage)  # type: ignore
             async def new_message_handler(event) -> None:
                 local_timestamp = time.time()
                 event_storage.log_raw_telethon_event(event, local_timestamp)
