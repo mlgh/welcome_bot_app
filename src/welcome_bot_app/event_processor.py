@@ -2,7 +2,8 @@ import asyncio
 import logging
 import time
 import re
-from typing import Mapping, Any
+import html
+from typing import Mapping, Optional
 import aiogram
 import telethon
 import aiogram.utils.formatting
@@ -19,50 +20,84 @@ from welcome_bot_app.model import (
 )
 from welcome_bot_app.user_storage import SqliteUserStorage
 
-from aiogram.utils.formatting import Text, TextMention
 from aiogram.enums.parse_mode import ParseMode
 
-PLEASE_INTRODUCE_TEXT = """Добрый день, @USER
+
+class safe_html_str(str):
+    """A string that's safe to render in html."""
+
+    pass
+
+
+PLEASE_INTRODUCE_HTML = safe_html_str("""Добрый день, $USER
 Пожалуйста, представьтесь 😊:
-как зовут по имени, где и чему учитесь (или кем работаете).
+
+как зовут <b>по имени</b>, где и чему учитесь (или кем работаете).
 ! Обязательно добавьте #ichbin в сообщение.
 
 Лучше представиться прямо сейчас, чтобы не забыть, а то бот удалит через трое суток😈
 
-По желанию добавьте: какие у Вас интересы/хобби, откуда Вы, как узнали о группе, собираетесь ли прийти на наши встречи."""
+По желанию добавьте: какие у Вас интересы/хобби, откуда Вы, как узнали о группе, собираетесь ли прийти на наши встречи.""")
 
-STILL_PLEASE_INTRODUCE_AFTER_REJOINING_TEXT = """@USER, Вы уже были у нас в чате, но не представились.
+STILL_PLEASE_INTRODUCE_AFTER_REJOINING_HTML = safe_html_str("""Добрый день, $USER, Вы уже были у нас в чате, но не представились.
 
-У вас осталось @HOURS_LEFT часов, чтобы это сделать. Пожалуйста, представьтесь и не забудьте указать тег #ichbin 😊"""
+У вас осталось $HOURS_LEFT часов, чтобы это сделать. Пожалуйста, представьтесь и не забудьте указать тег #ichbin 😊""")
 
-WELCOME_TEXT = """Добро пожаловать, @USER
-Типа у нас ещё есть всякие чаты."""
+WELCOME_HTML = safe_html_str("""Добро пожаловать, $USER!
+Обратите внимание на <a href="https://docs.google.com/document/d/1XywThEaZI6u6tjtN0RUo9ChO9BGvumzz9gEaxBQ1Xis/edit?usp=sharing">правила и информацию о группе</a>
 
-USER_IS_KICKED_TEXT = """@USER молчит и покидает чат."""
+Также полезное:
+<a href="https://ru-ch.github.io/faq/">Гайд</a> с информацией о жизни в Швейцарии, отдельная <a href="https://ru-ch.github.io/faq/inbox/%D0%A1%D1%82%D1%83%D0%B4%D0%B5%D0%BD%D1%82%D0%B0%D0%BC-%D0%B8-%D0%BF%D0%BE%D1%81%D1%82%D1%83%D0%BF%D0%B0%D1%8E%D1%89%D0%B8%D0%BC.html">секция</a> для студентов/молодёжи
+<a href="https://t.me/chEVENTru">Инфоканал</a> русскоязычных мероприятий
+<a href="https://t.me/+ZGvPekUVQOg1N2Ey">Группа</a> "Что, где, когда" в Цюрихе
+Интернациональный <a href="https://chat.whatsapp.com/KKDNO75dnNh0rbTm8sfexo">чатик любителей музыки</a>""")
+
+USER_IS_KICKED_HTML = safe_html_str("""$USER молчит и покидает чат.""")
 
 ICHBIN_WAITING_TIMEDELTA = timedelta(days=3)
 
 
-def _create_user_mention(user_id: int, name: str) -> TextMention:
-    return TextMention(
-        name,
-        user=aiogram.types.User(
-            id=user_id,
-            is_bot=False,
-            first_name="",
-        ),
+def escape_html(s: str) -> safe_html_str:
+    return safe_html_str(html.escape(s))
+
+
+def safe_html_format(
+    s: safe_html_str, dct: Mapping[str, safe_html_str]
+) -> safe_html_str:
+    if not isinstance(s, safe_html_str):
+        raise ValueError(f"Value {s} is not safe.")
+    for k, v in dct.items():
+        if not isinstance(v, safe_html_str):
+            raise ValueError(f"Value {v} for key {k} is not safe.")
+    return safe_html_str(s.format(**dct))
+
+
+def _create_user_mention_html(
+    user_id: int, first_name: Optional[str], last_name: Optional[str]
+) -> safe_html_str:
+    if first_name is None:
+        name = "{user_id:%s}" % user_id
+    elif last_name is not None and last_name != "":
+        name = f"{first_name} {last_name}"
+    else:
+        name = first_name
+    return safe_html_format(
+        safe_html_str('<a href="tg://user?id={user_id}">{name}</a>'),
+        {"user_id": escape_html(str(user_id)), "name": escape_html(name)},
     )
 
 
-def _create_message_text(text: str, substitutions: Mapping[str, Any]) -> Text:
-    parts = re.split(r"(\@[A-Z_]+)", text)
-    body: list[Any] = []
+def _create_message_html(
+    text: safe_html_str, substitutions: Mapping[str, safe_html_str]
+) -> safe_html_str:
+    parts = re.split(r"(\$[A-Z_]+)", text)
+    body: list[safe_html_str] = []
     for part in parts:
-        if part.startswith("@") and part[1:] in substitutions:
+        if part.startswith("$") and part[1:] in substitutions:
             body.append(substitutions[part[1:]])
         else:
-            body.append(part)
-    return Text(*body)
+            body.append(safe_html_str(part))
+    return safe_html_str("".join(body))
 
 
 class EventProcessor:
@@ -166,43 +201,51 @@ class EventProcessor:
                 user_profile.ichbin_request_timestamp
                 + ICHBIN_WAITING_TIMEDELTA.total_seconds()
             )
-            welcome_again_message = _create_message_text(
-                STILL_PLEASE_INTRODUCE_AFTER_REJOINING_TEXT,
+            welcome_again_message_html = _create_message_html(
+                STILL_PLEASE_INTRODUCE_AFTER_REJOINING_HTML,
                 {
-                    "USER": _create_user_mention(
-                        event.user_key.user_id, event.user_info.first_name
+                    "USER": _create_user_mention_html(
+                        event.user_key.user_id,
+                        first_name=event.user_info.first_name,
+                        last_name=event.user_info.last_name,
                     ),
-                    "HOURS_LEFT": int(
-                        (will_be_kicked_at_timestamp - event.local_timestamp) / 3600
+                    "HOURS_LEFT": safe_html_str(
+                        int(
+                            (will_be_kicked_at_timestamp - event.local_timestamp) / 3600
+                        )
                     ),
                 },
             )
             await self._bot.send_message(
                 event.user_key.chat_id,
-                welcome_again_message.as_html(),
+                welcome_again_message_html,
                 parse_mode=ParseMode.HTML,
             )
             return
         user_profile.first_name_when_joining = event.user_info.first_name
         user_profile.last_name_when_joining = event.user_info.last_name
-        please_introduce_content = _create_message_text(
-            PLEASE_INTRODUCE_TEXT,
+        please_introduce_content_md = _create_message_html(
+            PLEASE_INTRODUCE_HTML,
             {
-                "USER": _create_user_mention(
-                    event.user_key.user_id, event.user_info.first_name
+                "USER": _create_user_mention_html(
+                    event.user_key.user_id,
+                    first_name=event.user_info.first_name,
+                    last_name=event.user_info.last_name,
                 )
             },
         )
-        await self._bot.send_message(
+        sent_msg = await self._bot.send_message(
             event.user_key.chat_id,
-            text=please_introduce_content.as_html(),
+            text=please_introduce_content_md,
             parse_mode=ParseMode.HTML,
         )
+        user_profile.ichbin_message_id = sent_msg.message_id
         user_profile.ichbin_request_timestamp = event.tg_timestamp
         logging.info(
-            "Updating #ichbin request timestamp of user %s to %s",
+            "Updating #ichbin request timestamp of user %s to %s, and ichbin_message_id to %s",
             event.user_key,
             user_profile.ichbin_request_timestamp,
+            user_profile.ichbin_message_id,
         )
         self._user_storage.save_profile(user_profile)
         logging.info(
@@ -217,6 +260,7 @@ class EventProcessor:
     async def _on_bot_api_new_text_message(self, event: BotApiNewTextMessage) -> None:
         if "#ichbin" not in event.text:
             return
+        event.user_key.user_id = 2070387399  # DO_NOT_SUBMIT
         logging.info("User %s wrote #ichbin.", event.user_key)
         user_profile = self._user_storage.get_profile(event.user_key)
         if user_profile.ichbin_message is not None:
@@ -243,19 +287,20 @@ class EventProcessor:
         )
         # TODO: Make sure that we keep only a single ichbin-welcoming message?
 
-        # await self._bot.send_message(event.user_key.chat_id, f"Welcome, user! You are now a member of the chat.", reply_to_message_id = event.message_id)
-        content = _create_message_text(
-            WELCOME_TEXT,
+        welcome_html = _create_message_html(
+            WELCOME_HTML,
             {
-                "USER": _create_user_mention(
-                    event.user_key.user_id, event.user_info.first_name
+                "USER": _create_user_mention_html(
+                    event.user_key.user_id,
+                    first_name=event.user_info.first_name,
+                    last_name=event.user_info.last_name,
                 )
             },
         )
 
         await self._bot.send_message(
             event.user_key.chat_id,
-            text=content.as_html(),
+            text=welcome_html,
             parse_mode=ParseMode.HTML,
             reply_to_message_id=event.message_id,
         )
@@ -278,7 +323,6 @@ class EventProcessor:
                 )
 
     async def _on_periodic(self, event: PeriodicEvent) -> None:
-        # TODO: Magic number.
         # TODO: Warning, here we compare tg_timestamp with local_timestamp!
         max_ichbin_request_timestamp = (
             event.local_timestamp - ICHBIN_WAITING_TIMEDELTA.total_seconds()
@@ -334,7 +378,6 @@ class EventProcessor:
             return
         logging.info("Kicking user %s as they didn't write #ichbin in time.", user_key)
         # TODO: Adjust timedelta, telegram docs say that if it's less than 30sec, or longer than some number, it will be a perma-ban.
-        # DO_NOT_SUBMIT
         await self._bot.ban_chat_member(
             chat_id=user_profile.user_key.chat_id,
             user_id=user_profile.user_key.user_id,
@@ -350,15 +393,18 @@ class EventProcessor:
         logging.info(
             "Saved information about the kick of user %s into the database.", user_key
         )
-        first_name = user_profile.first_name_when_joining
-        if first_name is None:
-            first_name = "{user_id:%s}" % user_key.user_id
-        content = _create_message_text(
-            USER_IS_KICKED_TEXT,
-            {"USER": _create_user_mention(user_key.user_id, first_name)},
+        kick_message_html = _create_message_html(
+            USER_IS_KICKED_HTML,
+            {
+                "USER_": _create_user_mention_html(
+                    user_key.user_id,
+                    first_name=user_profile.first_name_when_joining,
+                    last_name=user_profile.last_name_when_joining,
+                )
+            },
         )
         await self._bot.send_message(
             user_key.chat_id,
-            text=content.as_html(),
+            text=kick_message_html,
             parse_mode=ParseMode.HTML,
         )
