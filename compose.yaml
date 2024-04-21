@@ -8,6 +8,7 @@ services:
       - TELETHON_API_HASH
       - TELETHON_SESSION
 secrets:
+  # TODO: Find out how to pass secrets in the most secure way.
   BOT_TOKEN:
     file: ./secrets/BOT_TOKEN
   TELETHON_API_ID:

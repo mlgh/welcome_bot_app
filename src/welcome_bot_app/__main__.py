@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import argparse
+import time
 from aiogram import Bot
 from aiogram.enums import ParseMode
 from telethon import TelegramClient
@@ -8,9 +9,21 @@ from telethon.sessions import StringSession
 
 from welcome_bot_app import bot_api_loop
 from welcome_bot_app import telethon_loop
+from welcome_bot_app.model import LocalUTCTimestamp
+from welcome_bot_app.model.events import PeriodicEvent
 from welcome_bot_app.event_processor import EventProcessor
-from welcome_bot_app.event_storage import SqliteEventStorage
+from welcome_bot_app.event_queue import BaseEventQueue, SqliteEventQueue
 from welcome_bot_app.user_storage import SqliteUserStorage
+
+
+async def periodic_event_generator(period: float, event_queue: BaseEventQueue) -> None:
+    """Helper function for periodic event generation."""
+    while True:
+        logging.info("Periodic task")
+        current_timestamp = LocalUTCTimestamp(time.time())
+        await event_queue.put_events([PeriodicEvent(recv_timestamp=current_timestamp)])
+        # Sleep until (current_time + period)
+        await asyncio.sleep(current_timestamp + period - time.time())
 
 
 async def main() -> None:
@@ -39,6 +52,16 @@ async def main() -> None:
         help="File with session string for Telethon",
         required=True,
     )
+    parser.add_argument(
+        "--event-queue-file", help="Path to the event queue file", required=True
+    )
+    parser.add_argument(
+        "--event-log-file", help="Path to the event log file", required=True
+    )
+    parser.add_argument(
+        "--user-storage-file", help="Path to the user storage file", required=True
+    )
+
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -60,24 +83,30 @@ async def main() -> None:
         StringSession(telethon_session_str), telethon_api_id, telethon_api_hash
     )
 
-    # TODO: Choose a valid path.
-    event_storage = SqliteEventStorage("/tmp/events.db")
-    user_storage = SqliteUserStorage("/tmp/users.db")
+    event_queue = SqliteEventQueue(
+        db_path=args.event_queue_file, options=SqliteEventQueue.Options()
+    )
+    event_log = bot_api_loop.EventLog(args.event_log_file)
+    user_storage = SqliteUserStorage(args.user_storage_file)
     event_processor = EventProcessor(
-        bot, telethon_client, event_storage=event_storage, user_storage=user_storage
+        EventProcessor.Config(),
+        bot,
+        telethon_client,
+        event_queue=event_queue,
+        user_storage=user_storage,
     )
 
     bot_task = asyncio.create_task(
-        bot_api_loop.bot_api_main(bot, event_processor, event_storage=event_storage)
+        bot_api_loop.bot_api_main(bot, event_queue=event_queue, event_log=event_log)
     )
     telethon_task = asyncio.create_task(
         telethon_loop.telethon_main(
-            telethon_client, event_processor, event_storage=event_storage
+            telethon_client, event_queue=event_queue, event_log=event_log
         )
     )
     event_processor_task = asyncio.create_task(event_processor.run())
     periodic_task = asyncio.create_task(
-        event_processor.periodic_event_generator(period=1)
+        periodic_event_generator(period=5, event_queue=event_queue)
     )
 
     all_tasks = [bot_task, telethon_task, event_processor_task, periodic_task]

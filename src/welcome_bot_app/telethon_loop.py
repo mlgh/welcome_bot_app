@@ -3,51 +3,60 @@ import asyncio
 import time
 import telethon
 from datetime import timezone
-from welcome_bot_app.event_processor import EventProcessor
-from welcome_bot_app.event_storage import SqliteEventStorage
-from welcome_bot_app.model import UserKey, TelethonNewMessage
+from welcome_bot_app.model import (
+    UserChatId,
+    TelethonMessageId,
+    TelethonUTCTimestamp,
+    LocalUTCTimestamp,
+)
+from welcome_bot_app.model.events import TelethonNewTextMessage
+from welcome_bot_app.event_log import EventLog
+from welcome_bot_app.event_queue import BaseEventQueue
 
 
 async def telethon_main(
     client: telethon.TelegramClient,
-    event_processor: EventProcessor,
-    event_storage: SqliteEventStorage,
+    event_queue: BaseEventQueue,
+    event_log: EventLog,
 ) -> None:
     try:
         async with client:
 
             @client.on(telethon.events.NewMessage)  # type: ignore
-            async def new_message_handler(event) -> None:
-                local_timestamp = time.time()
-                event_storage.log_raw_telethon_event(event, local_timestamp)
-                if not isinstance(event.from_id, telethon.types.PeerUser):
+            async def new_message_handler(telethon_event) -> None:
+                recv_timestamp = LocalUTCTimestamp(time.time())
+                event_log.log_telethon_event(recv_timestamp, telethon_event)
+                if not isinstance(telethon_event.from_id, telethon.types.PeerUser):
                     return
-                user_id = event.from_id.user_id
+                user_id = telethon_event.from_id.user_id
                 chat_id = None
-                if isinstance(event.peer_id, telethon.types.PeerUser):
+                if isinstance(telethon_event.peer_id, telethon.types.PeerUser):
                     # This is a private message to the bot user account, we should simply ignore this.
                     return
-                elif isinstance(event.peer_id, telethon.types.PeerChat):
-                    chat_id = event.peer_id.chat_id
+                elif isinstance(telethon_event.peer_id, telethon.types.PeerChat):
+                    chat_id = telethon_event.peer_id.chat_id
                     # Aiogram, or bot API represent this number as negative.
                     assert chat_id >= 0
                     chat_id *= -1
                 else:
                     return
                 assert chat_id is not None
-                user_key = UserKey(user_id=user_id, chat_id=chat_id)
-                if event.message.message is None:
+                user_chat_id = UserChatId(user_id=user_id, chat_id=chat_id)
+                if telethon_event.message.message is None:
                     return
-                await event_processor.put_event(
-                    TelethonNewMessage(
-                        local_timestamp=local_timestamp,
-                        user_key=user_key,
-                        text=event.message.message,
-                        message_id=event.message.id,
-                        tg_timestamp=event.date.astimezone(timezone.utc).timestamp(),
-                    )
+                event = TelethonNewTextMessage(
+                    recv_timestamp=recv_timestamp,
+                    user_chat_id=user_chat_id,
+                    text=telethon_event.message.message,
+                    message_id=TelethonMessageId(telethon_event.message.id),
+                    tg_timestamp=TelethonUTCTimestamp(
+                        telethon_event.date.astimezone(timezone.utc).timestamp()
+                    ),
                 )
+                event_log.log_base_event(recv_timestamp, event)
+                await event_queue.put_events([event])
 
+            # TODO: Handle other types of updates.
             # @client.on(telethon.events.MessageEdited)
             # async def message_edited_handler(event):
             #     await event_queue.put(('TELETHON/MSGEDIT', time.time(), event))

@@ -15,6 +15,7 @@ pytest = "*"
 pytest-asyncio = "*"
 mypy = "*"
 pre-commit = "*"
+pytest-timeout = "*"
 
 [requires]
 python_version = "3.11"

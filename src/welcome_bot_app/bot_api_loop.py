@@ -5,21 +5,23 @@ import time
 import logging
 import asyncio
 from datetime import timezone
-from welcome_bot_app.event_storage import SqliteEventStorage
-from welcome_bot_app.event_processor import EventProcessor
-from welcome_bot_app.model import (
-    BotApiNewChatMember,
+from welcome_bot_app.event_queue import BaseEventQueue
+from welcome_bot_app.model.events import (
+    BotApiChatMemberJoined,
     BotApiChatMemberLeft,
     BotApiNewTextMessage,
-    UserKey,
-    BotApiUserInfo,
-    Event,
+    BotApiUTCTimestamp,
+    BasicUserInfo,
+    BaseEvent,
 )
+from welcome_bot_app.model import LocalUTCTimestamp
+from welcome_bot_app.model import ChatId, UserChatId, UserId, BotApiMessageId
+from welcome_bot_app.event_log import EventLog
 
 
 def extract_bot_events(
-    message: aiogram.types.Message, local_timestamp: float
-) -> Generator[Event, None, None]:
+    message: aiogram.types.Message, recv_timestamp: LocalUTCTimestamp, is_edited: bool
+) -> Generator[BaseEvent, None, None]:
     if message.content_type == aiogram.types.ContentType.NEW_CHAT_MEMBERS:
         if message.new_chat_members is None:
             logging.error(
@@ -28,17 +30,21 @@ def extract_bot_events(
             )
             return
         for member in message.new_chat_members:
-            user_key = UserKey(user_id=member.id, chat_id=message.chat.id)
-            user_info = BotApiUserInfo(
+            user_chat_id = UserChatId(
+                user_id=UserId(member.id), chat_id=ChatId(message.chat.id)
+            )
+            basic_user_info = BasicUserInfo(
                 is_bot=member.is_bot,
                 first_name=member.first_name,
                 last_name=member.last_name,
             )
-            yield BotApiNewChatMember(
-                local_timestamp=local_timestamp,
-                user_key=user_key,
-                user_info=user_info,
-                tg_timestamp=message.date.astimezone(timezone.utc).timestamp(),
+            yield BotApiChatMemberJoined(
+                recv_timestamp=recv_timestamp,
+                user_chat_id=user_chat_id,
+                basic_user_info=basic_user_info,
+                tg_timestamp=BotApiUTCTimestamp(
+                    message.date.astimezone(timezone.utc).timestamp()
+                ),
             )
     elif message.content_type == aiogram.types.ContentType.LEFT_CHAT_MEMBER:
         if message.left_chat_member is None:
@@ -48,54 +54,72 @@ def extract_bot_events(
             )
             return
         yield BotApiChatMemberLeft(
-            local_timestamp=local_timestamp,
-            user_key=UserKey(
-                user_id=message.left_chat_member.id, chat_id=message.chat.id
+            recv_timestamp=recv_timestamp,
+            user_chat_id=UserChatId(
+                user_id=UserId(message.left_chat_member.id),
+                chat_id=ChatId(message.chat.id),
             ),
-            tg_timestamp=message.date.astimezone(timezone.utc).timestamp(),
+            tg_timestamp=BotApiUTCTimestamp(
+                message.date.astimezone(timezone.utc).timestamp()
+            ),
         )
     elif message.text is not None:
         # Ignore messages from non-users for now.
         if message.from_user is None:
             return
-        user_key = UserKey(user_id=message.from_user.id, chat_id=message.chat.id)
-        user_info = BotApiUserInfo(
+        user_chat_id = UserChatId(
+            user_id=UserId(message.from_user.id), chat_id=ChatId(message.chat.id)
+        )
+        basic_user_info = BasicUserInfo(
             is_bot=message.from_user.is_bot,
             first_name=message.from_user.first_name,
             last_name=message.from_user.last_name,
         )
         yield BotApiNewTextMessage(
-            local_timestamp=local_timestamp,
-            user_key=user_key,
-            user_info=user_info,
+            recv_timestamp=recv_timestamp,
+            user_chat_id=user_chat_id,
+            basic_user_info=basic_user_info,
             text=message.text,
-            message_id=message.message_id,
-            tg_timestamp=message.date.astimezone(timezone.utc).timestamp(),
+            is_edited=is_edited,
+            message_id=BotApiMessageId(message.message_id),
+            tg_timestamp=BotApiUTCTimestamp(
+                message.date.astimezone(timezone.utc).timestamp()
+            ),
         )
 
 
 async def bot_api_main(
-    bot: Bot, event_processor: EventProcessor, event_storage: SqliteEventStorage
+    bot: Bot, event_queue: BaseEventQueue, event_log: EventLog
 ) -> None:
     try:
         dp = Dispatcher()
 
-        @dp.message()
-        async def message_handler(message: aiogram.types.Message) -> None:
-            local_timestamp = time.time()
-            event_storage.log_raw_bot_api_event(message, local_timestamp)
-            # TODO: Veriy: if the message handler ends with exception, will Telegram
-            # resend it? If yes, we should probably retry an update a few time, and
-            # then log the unrecoverable error and skip the update.
+        async def common_message_handler(
+            message: aiogram.types.Message, is_edited: bool
+        ) -> None:
+            recv_timestamp = LocalUTCTimestamp(time.time())
+            event_log.log_bot_api_event(recv_timestamp, message)
             try:
-                for event in extract_bot_events(message, local_timestamp):
-                    await event_processor.put_event(event)
+                bot_events = list(
+                    extract_bot_events(message, recv_timestamp, is_edited=is_edited)
+                )
+                for event in bot_events:
+                    event_log.log_base_event(recv_timestamp, event)
+                await event_queue.put_events(bot_events)
             except Exception:
                 logging.error("Failed to process Bot API message: %s", message)
                 raise
 
+        @dp.message()
+        async def message_handler(message: aiogram.types.Message) -> None:
+            await common_message_handler(message, is_edited=False)
+
+        @dp.edited_message()
+        async def edited_message_handler(message: aiogram.types.Message) -> None:
+            await common_message_handler(message, is_edited=True)
+
         try:
-            await dp.start_polling(bot)
+            await dp.start_polling(bot, handle_signals=False)
         except asyncio.CancelledError:
             logging.info("bot_api_main cancelled")
     except:
