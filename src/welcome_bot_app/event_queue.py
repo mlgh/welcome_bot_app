@@ -57,7 +57,7 @@ class BaseEventQueue(ABC):
     @contextlib.asynccontextmanager
     async def get_event_for_processing(
         self, timeout: float
-    ) -> AsyncIterator[BaseEvent]:
+    ) -> AsyncIterator[BaseEvent | None]:
         # XXX: Hack to silence mypy.
         if False:
             yield
@@ -264,7 +264,7 @@ class SqliteEventQueue(BaseEventQueue):
     @contextlib.asynccontextmanager
     async def get_event_for_processing(
         self, timeout: float
-    ) -> AsyncIterator[BaseEvent]:
+    ) -> AsyncIterator[BaseEvent | None]:
         """Waits at most timeout seconds for the next event and acquires it for processing."""
         while True:
             new_event_ids = self._get_new_event_ids(1)
@@ -292,8 +292,8 @@ class SqliteEventQueue(BaseEventQueue):
                     )
                     self._new_events_available = False
             except TimeoutError:
-                logging.debug("new_events_cond.wait() timeout.")
-                continue
+                yield None
+                break
 
     async def put_events(self, events: List[BaseEvent]) -> None:
         """Returns event_id of the newly inserted event."""

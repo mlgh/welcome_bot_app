@@ -1,11 +1,10 @@
-version: "3"
 services:
   app:
     build: .
     volumes:
-      - ./db:/welcome_app/db
+      - /data/welcome_app/db:/welcome_app/db
     secrets:
       - BOT_TOKEN
 secrets:
   BOT_TOKEN:
-    file: ./secrets/BOT_TOKEN
+    file: /secrets/welcome_app/bot_token.txt
