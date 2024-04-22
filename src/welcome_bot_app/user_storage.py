@@ -66,20 +66,20 @@ class SqliteUserStorage:
                     -- Time when this message was sent.
                     sent_timestamp REAL NOT NULL,
                     -- Time when we (or someone else) deleted the message.
-                    delete_timestamp REAL      
+                    delete_timestamp REAL
                 )
             """)
         # Index for existing messages per user, should not be large.
         self._conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_bot_messages_per_user
                            ON BotMessages (user_id, chat_id)
-                           WHERE delete_timestamp IS NULL;       
+                           WHERE delete_timestamp IS NULL;
             """)
         # Index for existing messages per user+message_id, should not be large.
         self._conn.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_messages
                            ON BotMessages (message_id, user_id, chat_id)
-                           WHERE delete_timestamp IS NULL;       
+                           WHERE delete_timestamp IS NULL;
             """)
 
     def _bot_message_from_row(
