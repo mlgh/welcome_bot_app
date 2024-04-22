@@ -2,18 +2,10 @@ version: "3"
 services:
   app:
     build: .
+    volumes:
+      - ./db:/welcome_app/db
     secrets:
       - BOT_TOKEN
-      - TELETHON_API_ID
-      - TELETHON_API_HASH
-      - TELETHON_SESSION
 secrets:
-  # TODO: Find out how to pass secrets in the most secure way.
   BOT_TOKEN:
     file: ./secrets/BOT_TOKEN
-  TELETHON_API_ID:
-    file: ./secrets/TELETHON_API_ID
-  TELETHON_API_HASH:
-    file: ./secrets/TELETHON_API_HASH
-  TELETHON_SESSION:
-    file: ./secrets/TELETHON_SESSION

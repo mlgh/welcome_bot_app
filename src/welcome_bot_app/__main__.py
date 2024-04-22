@@ -105,10 +105,11 @@ async def main() -> None:
             )
         )
 
-    def handle_sigint() -> None:
+    def handle_stop_signal() -> None:
         asyncio.create_task(event_processor.stop())
 
-    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, handle_sigint)
+    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, handle_stop_signal)
+    asyncio.get_event_loop().add_signal_handler(signal.SIGTERM, handle_stop_signal)
 
     _, pending = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
     for task in pending:

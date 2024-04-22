@@ -135,7 +135,13 @@ def open_user_profile(
     user_profile_params: UserProfileParams,
 ) -> Iterator[UserProfile]:
     user_profile = user_storage.get_profile(user_chat_id)
+    original_json = user_profile.model_dump_json()
     yield user_profile
+    # TODO: Make sure that model_dump_json is deterministic.
+    modified_json = user_profile.model_dump_json()
+    if original_json == modified_json:
+        return
+    logging.info("Saving profile of user %r", user_chat_id)
     user_storage.save_profile(user_profile, user_profile_params)
 
 
@@ -241,7 +247,6 @@ class EventProcessor:
             if not user_profile.is_waiting_for_ichbin_message():
                 return
             user_profile.ichbin_message_timestamp = event.recv_timestamp
-            print("WTF LOLO")
             await self._send_message(
                 user_profile, WELCOME_HTML, BotApiMessageType.WELCOME
             )
