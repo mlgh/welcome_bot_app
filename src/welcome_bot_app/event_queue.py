@@ -3,7 +3,7 @@ import sqlite3
 import contextlib
 from pydantic import BaseModel
 from enum import Enum
-from typing import List, NewType, Any, Generator, AsyncGenerator
+from typing import AsyncIterator, List, NewType, Any, Generator
 import logging
 import time
 import asyncio
@@ -54,13 +54,16 @@ class EventRow(BaseModel):
 
 class BaseEventQueue(ABC):
     @abstractmethod
+    @contextlib.asynccontextmanager
     async def get_event_for_processing(
         self, timeout: float
-    ) -> AsyncGenerator[EventData | None, None]:
-        pass
+    ) -> AsyncIterator[BaseEvent]:
+        # XXX: Hack to silence mypy.
+        if False:
+            yield
 
     @abstractmethod
-    async def put_events(self, event_datas: List[EventData]) -> None:
+    async def put_events(self, event_datas: List[BaseEvent]) -> None:
         pass
 
 
@@ -93,7 +96,7 @@ class SqliteEventQueue(BaseEventQueue):
         # Flag to indicate that new events are available. Guarded by self._new_events_available_cond
         self._new_events_available = False
 
-    def _create_table(self):
+    def _create_table(self) -> None:
         self._conn.execute("PRAGMA strict=ON")
         self._conn.execute("""CREATE TABLE IF NOT EXISTS Events (
                           -- Unique event id.
@@ -185,7 +188,7 @@ class SqliteEventQueue(BaseEventQueue):
 
     def _release_event(
         self, event_id: EventId, event_execution_state: EventExecutionState
-    ):
+    ) -> bool:
         """Update the state of the event to DONE or ERROR from IN_PROGRESS, depending on the event processing result."""
         update_timestamp = LocalUTCTimestamp(time.time())
         cursor = self._conn.cursor()
@@ -261,7 +264,7 @@ class SqliteEventQueue(BaseEventQueue):
     @contextlib.asynccontextmanager
     async def get_event_for_processing(
         self, timeout: float
-    ) -> AsyncGenerator[BaseEvent | None, None]:
+    ) -> AsyncIterator[BaseEvent]:
         """Waits at most timeout seconds for the next event and acquires it for processing."""
         while True:
             new_event_ids = self._get_new_event_ids(1)
@@ -271,6 +274,7 @@ class SqliteEventQueue(BaseEventQueue):
                 try:
                     with self._lock_for_processing(event_id) as event_data:
                         event = BaseEventSubclass.validate_json(event_data.event_json)
+                        assert isinstance(event, BaseEvent)
                         yield event
                 except SqliteEventQueue.EventAcquireFailure:
                     # The event was acquired by someone else. It shouldn't appear in the get_new_events in the next iteration.
@@ -303,7 +307,7 @@ class SqliteEventQueue(BaseEventQueue):
                     "INSERT INTO events (recv_timestamp, event_type, event_json, state, state_update_timestamp, attempts_json) VALUES (?, ?, ?, ?, ?, ?)",
                     (
                         event.recv_timestamp,
-                        event.type,
+                        event.event_type,
                         event.model_dump_json(indent=2),
                         EventStateEnum.NEW,
                         state_update_timestamp,

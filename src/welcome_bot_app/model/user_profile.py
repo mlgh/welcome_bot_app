@@ -68,14 +68,14 @@ class UserProfile(BaseModel):
     def on_kicked(self, kick_timestamp: LocalUTCTimestamp) -> None:
         self.presence_info.kick_timestamp = kick_timestamp
 
-    def first_name(self) -> str:
+    def first_name(self) -> str | None:
         return (
             self.basic_user_info.first_name
             if self.basic_user_info is not None
             else None
         )
 
-    def last_name(self) -> str:
+    def last_name(self) -> str | None:
         return (
             self.basic_user_info.last_name if self.basic_user_info is not None else None
         )
@@ -91,14 +91,14 @@ class UserProfile(BaseModel):
 
     def get_kick_at_timestamp(
         self, user_profile_params: UserProfileParams
-    ) -> LocalUTCTimestamp:
+    ) -> LocalUTCTimestamp | None:
         if not self.presence_info.is_present():
             return None
         if self.ichbin_message_timestamp is not None:
             return None
         if self.ichbin_request_timestamp is None:
             return None
-        return (
+        return LocalUTCTimestamp(
             self.ichbin_request_timestamp
             + user_profile_params.ichbin_waiting_time.total_seconds()
             + self.extra_grace_time

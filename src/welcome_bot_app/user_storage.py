@@ -22,7 +22,7 @@ class SqliteUserStorage:
         self._conn = sqlite3.connect(file_path)
         self._initialize_database(log_statements)
 
-    def _trace_callback(self, statement: str):
+    def _trace_callback(self, statement: str) -> None:
         logging.info("SQL: %s", statement)
 
     def _initialize_database(self, log_statements: bool) -> None:
@@ -89,7 +89,7 @@ class SqliteUserStorage:
         message_id: Any,
         message_type: Any,
         sent_timestamp: Any,
-    ):
+    ) -> BotApiMessage:
         # TODO: Handle exceptions during conversion?
         return BotApiMessage(
             user_chat_id=UserChatId(user_id=UserId(user_id), chat_id=ChatId(chat_id)),

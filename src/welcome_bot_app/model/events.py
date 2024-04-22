@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 from typing import Literal, Annotated, Union
 from welcome_bot_app.model import (
     LocalUTCTimestamp,
+    TelethonUTCTimestamp,
     UserChatId,
     BotApiUTCTimestamp,
     BotApiMessageId,
@@ -12,11 +13,11 @@ from welcome_bot_app.model import (
 class BaseEvent(BaseModel):
     """Base class for all events."""
 
-    type: Literal["BaseEvent"] = "BaseEvent"
+    event_type: str = "BaseEvent"
     recv_timestamp: LocalUTCTimestamp
 
     @classmethod
-    def get_subclasses(cls):
+    def get_subclasses(cls) -> "tuple[type[BaseEvent], ...]":
         return tuple(cls.__subclasses__())
 
 
@@ -32,7 +33,7 @@ class BasicUserInfo(BaseModel):
 class BotApiNewTextMessage(BaseEvent):
     """New text message from user."""
 
-    type: Literal["BotApiNewTextMessage"] = "BotApiNewTextMessage"
+    event_type: Literal["BotApiNewTextMessage"] = "BotApiNewTextMessage"
 
     user_chat_id: UserChatId
     basic_user_info: BasicUserInfo
@@ -45,7 +46,7 @@ class BotApiNewTextMessage(BaseEvent):
 class BotApiChatMemberJoined(BaseEvent):
     """New chat member."""
 
-    type: Literal["BotApiChatMemberJoined"] = "BotApiChatMemberJoined"
+    event_type: Literal["BotApiChatMemberJoined"] = "BotApiChatMemberJoined"
 
     user_chat_id: UserChatId
     basic_user_info: BasicUserInfo
@@ -55,7 +56,7 @@ class BotApiChatMemberJoined(BaseEvent):
 class BotApiChatMemberLeft(BaseEvent):
     """Chat member left."""
 
-    type: Literal["BotApiChatMemberLeft"] = "BotApiChatMemberLeft"
+    event_type: Literal["BotApiChatMemberLeft"] = "BotApiChatMemberLeft"
 
     user_chat_id: UserChatId
     tg_timestamp: BotApiUTCTimestamp
@@ -67,12 +68,12 @@ class BotApiChatMemberLeft(BaseEvent):
 class TelethonNewTextMessage(BaseEvent):
     """New text message from user."""
 
-    type: Literal["TelethonNewTextMessage"] = "TelethonNewTextMessage"
+    event_type: Literal["TelethonNewTextMessage"] = "TelethonNewTextMessage"
 
     user_chat_id: UserChatId
     text: str
     message_id: TelethonMessageId
-    tg_timestamp: BotApiUTCTimestamp
+    tg_timestamp: TelethonUTCTimestamp
 
 
 # Periodic event
@@ -81,9 +82,15 @@ class TelethonNewTextMessage(BaseEvent):
 class PeriodicEvent(BaseEvent):
     """Periodic event."""
 
-    type: Literal["PeriodicEvent"] = "PeriodicEvent"
+    event_type: Literal["PeriodicEvent"] = "PeriodicEvent"
+
+
+class StopEvent(BaseEvent):
+    """Stops the event processor."""
+
+    event_type: Literal["StopEvent"] = "StopEvent"
 
 
 BaseEventSubclass = TypeAdapter(
-    Annotated[Union[BaseEvent.get_subclasses()], Field(discriminator="type")]
+    Annotated[Union[BaseEvent.get_subclasses()], Field(discriminator="event_type")]
 )

@@ -4,14 +4,14 @@ import time
 from collections import defaultdict
 import re
 import html
-from typing import Iterable, List, Mapping, Optional
+from typing import Iterable, Iterator, List, Mapping, Optional
 import aiogram
 from pydantic import BaseModel
 import telethon
 import contextlib
 import aiogram.utils.formatting
 from datetime import timedelta
-from welcome_bot_app.model import BotApiMessageId, LocalUTCTimestamp, UserChatId
+from welcome_bot_app.model import BotApiMessageId, LocalUTCTimestamp, UserChatId, UserId
 from welcome_bot_app.model.user_profile import (
     BotApiMessage,
     BotApiMessageType,
@@ -26,6 +26,7 @@ from welcome_bot_app.model.events import (
     BotApiChatMemberJoined,
     BotApiChatMemberLeft,
     PeriodicEvent,
+    StopEvent,
 )
 
 from aiogram.enums.parse_mode import ParseMode
@@ -47,7 +48,9 @@ ICHBIN_REQUEST_HTML = safe_html_str("""Добрый день, $USER
 
 По желанию добавьте: какие у Вас интересы/хобби, откуда Вы, как узнали о группе, собираетесь ли прийти на наши встречи.""")
 
-NOT_MUCH_TIME_LEFT_TO_WRITE_ICHBIN_HTML = """Добрый день, $USER, пожалуйста, представьтесь с тегом #ichbin как можно скорее, иначе бот удалит."""
+NOT_MUCH_TIME_LEFT_TO_WRITE_ICHBIN_HTML = safe_html_str(
+    """Добрый день, $USER, пожалуйста, представьтесь с тегом #ichbin как можно скорее, иначе бот удалит."""
+)
 
 STILL_PLEASE_INTRODUCE_AFTER_REJOINING_HTML = safe_html_str("""Добрый день, $USER, Вы уже были у нас в чате, но не представились.
 
@@ -74,7 +77,7 @@ def create_message_html(
         message,
         {
             "USER": _create_user_mention_html(
-                user_profile.user_chat_id,
+                user_profile.user_chat_id.user_id,
                 first_name=user_profile.first_name(),
                 last_name=user_profile.last_name(),
             )
@@ -98,7 +101,7 @@ def safe_html_format(
 
 
 def _create_user_mention_html(
-    user_id: int, first_name: Optional[str], last_name: Optional[str]
+    user_id: UserId, first_name: Optional[str], last_name: Optional[str]
 ) -> safe_html_str:
     if first_name is None:
         name = "{user_id:%s}" % user_id
@@ -130,7 +133,7 @@ def open_user_profile(
     user_chat_id: UserChatId,
     user_storage: SqliteUserStorage,
     user_profile_params: UserProfileParams,
-):
+) -> Iterator[UserProfile]:
     user_profile = user_storage.get_profile(user_chat_id)
     yield user_profile
     user_storage.save_profile(user_profile, user_profile_params)
@@ -144,12 +147,14 @@ class EventProcessor:
         ichbin_waiting_time: timedelta = timedelta(days=3)
         # If the user joined the chat 1 month ago, then rejoined it today, we should not kick him, instead we should give him some grace time to write the ichbin message.
         extra_ichbin_waiting_time_after_rejoining: timedelta = timedelta(hours=1)
+        # How often should we check for periodic stuff, like users to kick,
+        periodic_event_interval: timedelta = timedelta(seconds=3)
 
     def __init__(
         self,
         config: Config,
         bot: aiogram.Bot,
-        telethon_client: telethon.TelegramClient,
+        telethon_client: Optional[telethon.TelegramClient],
         event_queue: BaseEventQueue,
         user_storage: SqliteUserStorage,
     ):
@@ -162,24 +167,41 @@ class EventProcessor:
         self._user_profile_params = UserProfileParams(
             ichbin_waiting_time=self._config.ichbin_waiting_time
         )
+        self._last_periodic_event_timestamp = LocalUTCTimestamp(0.0)
+        self._stopped = False
 
     @contextlib.contextmanager
-    def _open_user_profile(self, user_chat_id: UserChatId):
+    def _open_user_profile(self, user_chat_id: UserChatId) -> Iterator[UserProfile]:
         with open_user_profile(
             user_chat_id, self._user_storage, self._user_profile_params
         ) as user_profile:
             yield user_profile
 
+    async def stop(self) -> None:
+        logging.info("Putting stop event")
+        await self._event_queue.put_events(
+            [StopEvent(recv_timestamp=LocalUTCTimestamp(time.time()))]
+        )
+
     async def run(self) -> None:
-        while True:
-            event = None
+        while not self._stopped:
+            event: BaseEvent | None = None
             try:
-                async with self._event_queue.get_event_for_processing(
-                    timeout=1.0
-                ) as event:
-                    if event is None:
-                        continue
+                if (
+                    self._last_periodic_event_timestamp
+                    + self._config.periodic_event_interval.total_seconds()
+                    < time.time()
+                ):
+                    self._last_periodic_event_timestamp = LocalUTCTimestamp(time.time())
+                    event = PeriodicEvent(recv_timestamp=LocalUTCTimestamp(time.time()))
                     await self._handle_event(event)
+                else:
+                    async with self._event_queue.get_event_for_processing(
+                        timeout=1.0
+                    ) as event:
+                        if event is None:
+                            continue
+                        await self._handle_event(event)
             except asyncio.CancelledError:
                 logging.info("EventProcessor cancelled")
                 break
@@ -194,6 +216,7 @@ class EventProcessor:
                         event,
                         exc_info=True,
                     )
+        logging.info("Exiting the EventProcessor.run() loop")
 
     async def _handle_event(self, event: BaseEvent) -> None:
         if isinstance(event, BotApiNewTextMessage):
@@ -204,6 +227,9 @@ class EventProcessor:
             await self._on_bot_api_chat_member_left(event)
         elif isinstance(event, PeriodicEvent):
             await self._on_periodic_event(event)
+        elif isinstance(event, StopEvent):
+            logging.info("Handled stop event.")
+            self._stopped = True
         else:
             logging.critical("BUG: Unknown event: %s, skipping.", event)
 
