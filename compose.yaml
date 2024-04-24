@@ -5,6 +5,7 @@ services:
       - /data/welcome_app/db:/welcome_app/db
     secrets:
       - BOT_TOKEN
+    image: 127.0.0.1:5000/welcome_app
 secrets:
   BOT_TOKEN:
     file: /secrets/welcome_app/bot_token.txt
