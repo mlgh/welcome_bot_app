@@ -265,6 +265,9 @@ class EventProcessor:
         with self._open_user_profile(event.user_chat_id) as user_profile:
             user_profile.basic_user_info = event.basic_user_info
             user_profile.on_joined(event.recv_timestamp)
+            if user_profile.basic_user_info.is_bot:
+                logging.info("Ignoring bot %r", user_profile.user_chat_id)
+                return
             if user_profile.ichbin_message_timestamp is not None:
                 await self._send_message(
                     user_profile, WELCOME_AGAIN_HTML, BotApiMessageType.WELCOME_AGAIN
