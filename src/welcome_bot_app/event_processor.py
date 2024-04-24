@@ -162,7 +162,7 @@ class EventProcessor:
         # How often should we check for periodic stuff, like users to kick,
         periodic_event_interval: timedelta = timedelta(seconds=3)
         dark_launch_sink_chat_id: Optional[ChatId] = None
-        admin_user_id: UserId = UserId(6776217955)
+        admin_user_id: UserId = UserId(290342629)  # @icebergler
 
     def __init__(
         self,
@@ -257,6 +257,9 @@ class EventProcessor:
             if command == "/message":
                 destination_chat_id_str, _, message = rest.partition(" ")
                 destination_chat_id = ChatId(int(destination_chat_id_str))
+                logging.info(
+                    "Sending message %r to chat %r", message, destination_chat_id
+                )
                 await self._bot.send_message(chat_id=destination_chat_id, text=message)
             else:
                 raise ValueError(f"Unknown command: {command}")
