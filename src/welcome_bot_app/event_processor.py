@@ -253,8 +253,11 @@ class EventProcessor:
     async def _on_admin_message(self, event: BotApiNewTextMessage) -> None:
         text = event.text
         command, _, rest = text.partition(" ")
+        # TODO: Only execute command if it's actually targeted to the bot.
+        if not command.startswith("/lancet_"):
+            return
         try:
-            if command == "/message":
+            if command == "/lancet_message":
                 destination_chat_id_str, _, message = rest.partition(" ")
                 destination_chat_id = ChatId(int(destination_chat_id_str))
                 logging.info(
