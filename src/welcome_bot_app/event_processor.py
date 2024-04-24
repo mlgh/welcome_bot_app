@@ -2,9 +2,7 @@ import asyncio
 import logging
 import time
 from collections import defaultdict
-import re
-import html
-from typing import Iterable, Iterator, List, Mapping, Optional
+from typing import Iterable, Iterator, List, Optional
 import aiogram
 from pydantic import BaseModel
 import telethon
@@ -18,11 +16,18 @@ from welcome_bot_app.model import (
     UserChatId,
     UserId,
 )
+from welcome_bot_app.model.chat_settings import ChatSettings
 from welcome_bot_app.model.user_profile import (
     BotApiMessage,
     BotApiMessageType,
     UserProfile,
     UserProfileParams,
+)
+from welcome_bot_app.safe_html import (
+    escape_html,
+    safe_html_format,
+    safe_html_str,
+    substitute_html,
 )
 from welcome_bot_app.user_storage import SqliteUserStorage
 from welcome_bot_app.event_queue import BaseEventQueue
@@ -38,48 +43,10 @@ from welcome_bot_app.model.events import (
 from aiogram.enums.parse_mode import ParseMode
 
 
-class safe_html_str(str):
-    """A string that's safe to render in html."""
-
-    pass
-
-
-ICHBIN_REQUEST_HTML = safe_html_str("""Добрый день, $USER
-Пожалуйста, представьтесь 😊:
-
-как зовут <b>по имени</b>, где и чему учитесь (или кем работаете).
-! Обязательно добавьте #ichbin в сообщение.
-
-Лучше представиться прямо сейчас, чтобы не забыть, а то бот удалит через трое суток😈
-
-По желанию добавьте: какие у Вас интересы/хобби, откуда Вы, как узнали о группе, собираетесь ли прийти на наши встречи.""")
-
-NOT_MUCH_TIME_LEFT_TO_WRITE_ICHBIN_HTML = safe_html_str(
-    """Добрый день, $USER, пожалуйста, представьтесь с тегом #ichbin как можно скорее, иначе бот удалит."""
-)
-
-STILL_PLEASE_INTRODUCE_AFTER_REJOINING_HTML = safe_html_str("""Добрый день, $USER, Вы уже были у нас в чате, но не представились.
-
-У вас осталось $HOURS_LEFT часов, чтобы это сделать. Пожалуйста, представьтесь и не забудьте указать тег #ichbin 😊""")
-
-WELCOME_HTML = safe_html_str("""Добро пожаловать, $USER!
-Обратите внимание на <a href="https://docs.google.com/document/d/1XywThEaZI6u6tjtN0RUo9ChO9BGvumzz9gEaxBQ1Xis/edit?usp=sharing">правила и информацию о группе</a>
-
-Также полезное:
-<a href="https://ru-ch.github.io/faq/">Гайд</a> с информацией о жизни в Швейцарии, отдельная <a href="https://ru-ch.github.io/faq/inbox/%D0%A1%D1%82%D1%83%D0%B4%D0%B5%D0%BD%D1%82%D0%B0%D0%BC-%D0%B8-%D0%BF%D0%BE%D1%81%D1%82%D1%83%D0%BF%D0%B0%D1%8E%D1%89%D0%B8%D0%BC.html">секция</a> для студентов/молодёжи
-<a href="https://t.me/chEVENTru">Инфоканал</a> русскоязычных мероприятий
-<a href="https://t.me/+ZGvPekUVQOg1N2Ey">Группа</a> "Что, где, когда" в Цюрихе
-Интернациональный <a href="https://chat.whatsapp.com/KKDNO75dnNh0rbTm8sfexo">чатик любителей музыки</a>""")
-
-WELCOME_AGAIN_HTML = safe_html_str("""Добро пожаловать снова, $USER!""")
-
-USER_IS_KICKED_HTML = safe_html_str("""$USER молчит и покидает чат.""")
-
-
 def create_message_html(
     message: safe_html_str, user_profile: UserProfile
 ) -> safe_html_str:
-    return _substitute_html(
+    return substitute_html(
         message,
         {
             "USER": _create_user_mention_html(
@@ -89,21 +56,6 @@ def create_message_html(
             )
         },
     )
-
-
-def escape_html(s: str) -> safe_html_str:
-    return safe_html_str(html.escape(s))
-
-
-def safe_html_format(
-    s: safe_html_str, dct: Mapping[str, safe_html_str]
-) -> safe_html_str:
-    if not isinstance(s, safe_html_str):
-        raise ValueError(f"Value {s} is not safe.")
-    for k, v in dct.items():
-        if not isinstance(v, safe_html_str):
-            raise ValueError(f"Value {v} for key {k} is not safe.")
-    return safe_html_str(s.format(**dct))
 
 
 def _create_user_mention_html(
@@ -121,47 +73,30 @@ def _create_user_mention_html(
     )
 
 
-def _substitute_html(
-    text: safe_html_str, substitutions: Mapping[str, safe_html_str]
-) -> safe_html_str:
-    parts = re.split(r"(\$[A-Z_]+)", text)
-    body: list[safe_html_str] = []
-    for part in parts:
-        if part.startswith("$") and part[1:] in substitutions:
-            body.append(substitutions[part[1:]])
-        else:
-            body.append(safe_html_str(part))
-    return safe_html_str("".join(body))
-
-
 @contextlib.contextmanager
 def open_user_profile(
     user_chat_id: UserChatId,
     user_storage: SqliteUserStorage,
-    user_profile_params: UserProfileParams,
-) -> Iterator[UserProfile]:
+) -> Iterator[tuple[UserProfile, ChatSettings]]:
     user_profile = user_storage.get_profile(user_chat_id)
+    chat_settings = user_storage.get_chat_settings(user_chat_id.chat_id)
     original_json = user_profile.model_dump_json()
-    yield user_profile
+    yield user_profile, chat_settings
     # TODO: Make sure that model_dump_json is deterministic.
     modified_json = user_profile.model_dump_json()
     if original_json == modified_json:
         return
     logging.info("Saving profile of user %r", user_chat_id)
-    user_storage.save_profile(user_profile, user_profile_params)
+    user_storage.save_profile(
+        user_profile,
+        UserProfileParams(ichbin_waiting_time=chat_settings.ichbin_waiting_time),
+    )
 
 
 class EventProcessor:
     class Config(BaseModel):
-        # For how long to ban the user if he didn't write ichbin.
-        ban_duration: timedelta = timedelta(minutes=1)
-        # How long to wait for the user to write ichbin.
-        ichbin_waiting_time: timedelta = timedelta(days=3)
-        # If the user joined the chat 1 month ago, then rejoined it today, we should not kick him, instead we should give him some grace time to write the ichbin message.
-        extra_ichbin_waiting_time_after_rejoining: timedelta = timedelta(hours=1)
         # How often should we check for periodic stuff, like users to kick,
         periodic_event_interval: timedelta = timedelta(seconds=3)
-        dark_launch_sink_chat_id: Optional[ChatId] = None
         admin_user_id: UserId = UserId(290342629)  # @icebergler
 
     def __init__(
@@ -173,25 +108,18 @@ class EventProcessor:
         user_storage: SqliteUserStorage,
     ):
         self._config = config
-
-        # TODO: Add ability to configure this via Telegram.
-        self._config.dark_launch_sink_chat_id = ChatId(-1002052048428)
-
         self._bot = bot
         self._telethon_client = telethon_client
         self._event_queue = event_queue
         self._user_storage = user_storage
-        self._user_profile_params = UserProfileParams(
-            ichbin_waiting_time=self._config.ichbin_waiting_time
-        )
         self._last_periodic_event_timestamp = LocalUTCTimestamp(0.0)
         self._stopped = False
 
     @contextlib.contextmanager
-    def _open_user_profile(self, user_chat_id: UserChatId) -> Iterator[UserProfile]:
-        with open_user_profile(
-            user_chat_id, self._user_storage, self._user_profile_params
-        ) as user_profile:
+    def _open_user_profile(
+        self, user_chat_id: UserChatId
+    ) -> Iterator[tuple[UserProfile, ChatSettings]]:
+        with open_user_profile(user_chat_id, self._user_storage) as user_profile:
             yield user_profile
 
     async def stop(self) -> None:
@@ -256,6 +184,7 @@ class EventProcessor:
         # TODO: Only execute command if it's actually targeted to the bot.
         if not command.startswith("/lancet_"):
             return
+        response_message: str | None = None
         try:
             if command == "/lancet_message":
                 destination_chat_id_str, _, message = rest.partition(" ")
@@ -264,6 +193,24 @@ class EventProcessor:
                     "Sending message %r to chat %r", message, destination_chat_id
                 )
                 await self._bot.send_message(chat_id=destination_chat_id, text=message)
+                response_message = "Message sent!"
+            elif command == "/lancet_chats":
+                chats = self._user_storage.get_chats()
+                chat_lines = []
+                for chat_id, chat_info in chats.items():
+                    chat_lines.append(f"{chat_id}: {chat_info!r}")
+                response_message = "Chats:\n" + "\n".join(chat_lines)
+            elif command == "/lancet_get_settings":
+                chat_id_str, _, _ = rest.partition(" ")
+                chat_id = ChatId(int(chat_id_str))
+                chat_settings = self._user_storage.get_chat_settings(chat_id)
+                response_message = f"Settings for chat {chat_id}:\n{chat_settings.model_dump_json(indent=2)}"
+            elif command == "/lancet_set_settings":
+                chat_id_str, _, rest = rest.partition(" ")
+                chat_id = ChatId(int(chat_id_str))
+                chat_settings = ChatSettings.model_validate_json(rest)
+                self._user_storage.set_chat_settings(chat_id, chat_settings)
+                response_message = f"Settings for chat {chat_id} updated."
             else:
                 raise ValueError(f"Unknown command: {command}")
         except Exception:
@@ -277,21 +224,26 @@ class EventProcessor:
                 ),
             )
         else:
-            response_text = "Command executed successfully."
+            if response_message is None:
+                response_message = "Command executed successfully."
             await self._bot.send_message(
                 chat_id=event.user_chat_id.chat_id,
-                text=response_text,
+                text=response_message,
                 reply_parameters=aiogram.types.ReplyParameters(
                     message_id=event.message_id, chat_id=event.user_chat_id.chat_id
                 ),
             )
 
     async def _on_bot_api_new_text_message(self, event: BotApiNewTextMessage) -> None:
+        self._user_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
         if event.user_chat_id.user_id == self._config.admin_user_id:
             logging.info("Got a message from admin: %r", event)
             await self._on_admin_message(event)
             return
-        with self._open_user_profile(event.user_chat_id) as user_profile:
+        with self._open_user_profile(event.user_chat_id) as (
+            user_profile,
+            chat_settings,
+        ):
             user_profile.basic_user_info = event.basic_user_info
             if "#ichbin" not in event.text:
                 return
@@ -299,11 +251,20 @@ class EventProcessor:
                 return
             user_profile.ichbin_message_timestamp = event.recv_timestamp
             await self._send_message(
-                user_profile, WELCOME_HTML, BotApiMessageType.WELCOME
+                user_profile,
+                chat_settings.bot_reply_templates.welcome,
+                BotApiMessageType.WELCOME,
             )
 
+    async def _is_me(self, user_id: UserId) -> bool:
+        return user_id == (await self._bot.me()).id
+
     async def _on_bot_api_new_chat_member(self, event: BotApiChatMemberJoined) -> None:
-        with self._open_user_profile(event.user_chat_id) as user_profile:
+        self._user_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
+        with self._open_user_profile(event.user_chat_id) as (
+            user_profile,
+            chat_settings,
+        ):
             user_profile.basic_user_info = event.basic_user_info
             user_profile.on_joined(event.recv_timestamp)
             if user_profile.basic_user_info.is_bot:
@@ -311,17 +272,24 @@ class EventProcessor:
                 return
             if user_profile.ichbin_message_timestamp is not None:
                 await self._send_message(
-                    user_profile, WELCOME_AGAIN_HTML, BotApiMessageType.WELCOME_AGAIN
+                    user_profile,
+                    chat_settings.bot_reply_templates.welcome_again,
+                    BotApiMessageType.WELCOME_AGAIN,
                 )
                 return
             if user_profile.ichbin_request_timestamp is None:
                 bot_message = await self._send_message(
-                    user_profile, ICHBIN_REQUEST_HTML, BotApiMessageType.ICHBIN_REQUEST
+                    user_profile,
+                    chat_settings.bot_reply_templates.ichbin_request,
+                    BotApiMessageType.ICHBIN_REQUEST,
                 )
                 user_profile.ichbin_request_timestamp = bot_message.sent_timestamp
                 return
+            chat_settings = self._user_storage.get_chat_settings(
+                event.user_chat_id.chat_id
+            )
             kick_at_timestamp = user_profile.get_kick_at_timestamp(
-                self._user_profile_params
+                UserProfileParams(ichbin_waiting_time=chat_settings.ichbin_waiting_time)
             )
             if kick_at_timestamp is None:
                 logging.warning(
@@ -331,17 +299,17 @@ class EventProcessor:
             time_left = kick_at_timestamp - event.recv_timestamp
             if (
                 time_left
-                > self._config.extra_ichbin_waiting_time_after_rejoining.total_seconds()
+                > chat_settings.extra_ichbin_waiting_time_after_rejoining.total_seconds()
             ):
                 # No need yet to warn the user that he will be kicked soon.
                 return
             user_profile.add_extra_grace_time(
-                self._config.extra_ichbin_waiting_time_after_rejoining.total_seconds()
+                chat_settings.extra_ichbin_waiting_time_after_rejoining.total_seconds()
                 - time_left
             )
             await self._send_message(
                 user_profile,
-                NOT_MUCH_TIME_LEFT_TO_WRITE_ICHBIN_HTML,
+                chat_settings.bot_reply_templates.not_much_time_left_to_write_ichbin,
                 BotApiMessageType.NOT_MUCH_TIME_LEFT_TO_WRITE_ICHBIN,
             )
 
@@ -351,20 +319,22 @@ class EventProcessor:
         message_template: safe_html_str,
         message_type: BotApiMessageType,
     ) -> BotApiMessage:
-        if not self._is_dark_launch(user_profile.user_chat_id.chat_id):
+        chat_settings = self._user_storage.get_chat_settings(
+            user_profile.user_chat_id.chat_id
+        )
+        if chat_settings.dark_launch_sink_chat_id is None:
             sent_message = await self._bot.send_message(
                 user_profile.user_chat_id.chat_id,
                 create_message_html(message_template, user_profile),
                 parse_mode=ParseMode.HTML,
             )
         else:
-            assert self._config.dark_launch_sink_chat_id is not None
             logging.info(
                 "Redirecting message to dark launch chat %r",
-                self._config.dark_launch_sink_chat_id,
+                chat_settings.dark_launch_sink_chat_id,
             )
             sent_message = await self._bot.send_message(
-                self._config.dark_launch_sink_chat_id,
+                chat_settings.dark_launch_sink_chat_id,
                 create_message_html(message_template, user_profile),
                 parse_mode=ParseMode.HTML,
             )
@@ -379,8 +349,12 @@ class EventProcessor:
         return bot_api_message
 
     async def _on_bot_api_chat_member_left(self, event: BotApiChatMemberLeft) -> None:
-        # Nothing need to be done here.
-        with self._open_user_profile(event.user_chat_id) as user_profile:
+        if await self._is_me(event.user_chat_id.user_id):
+            self._user_storage.remove_chat(event.user_chat_id.chat_id)
+        with self._open_user_profile(event.user_chat_id) as (
+            user_profile,
+            chat_settings,
+        ):
             user_profile.on_left(left_timestamp=event.recv_timestamp)
 
     async def _on_periodic_event(self, event: PeriodicEvent) -> None:
@@ -458,30 +432,26 @@ class EventProcessor:
             if current_timestamp > msg.sent_timestamp + ttl.total_seconds():
                 await self._delete_message(msg, current_timestamp)
 
-    def _is_dark_launch(self, chat_id: ChatId) -> bool:
-        return (
-            self._config.dark_launch_sink_chat_id is not None
-            and self._config.dark_launch_sink_chat_id != chat_id
-        )
-
     async def _delete_message(
         self, message: BotApiMessage, current_timestamp: LocalUTCTimestamp
     ) -> None:
         try:
-            if not self._is_dark_launch(message.user_chat_id.chat_id):
+            chat_settings = self._user_storage.get_chat_settings(
+                message.user_chat_id.chat_id
+            )
+            if chat_settings.dark_launch_sink_chat_id is None:
                 logging.info("Trying to delete message %r", message)
                 await self._bot.delete_message(
                     chat_id=message.user_chat_id.chat_id, message_id=message.message_id
                 )
             else:
-                assert self._config.dark_launch_sink_chat_id is not None
                 logging.info(
                     "Deleting message %r in dark launch chat %r",
                     message,
-                    self._config.dark_launch_sink_chat_id,
+                    chat_settings.dark_launch_sink_chat_id,
                 )
                 await self._bot.delete_message(
-                    chat_id=self._config.dark_launch_sink_chat_id,
+                    chat_id=chat_settings.dark_launch_sink_chat_id,
                     message_id=message.message_id,
                 )
             self._user_storage.mark_bot_message_as_deleted(
@@ -498,9 +468,9 @@ class EventProcessor:
         current_timestamp: LocalUTCTimestamp,
     ) -> None:
         logging.info("Attempting to kick user %r", user_chat_id)
-        with self._open_user_profile(user_chat_id) as user_profile:
+        with self._open_user_profile(user_chat_id) as (user_profile, chat_settings):
             kick_at_timestamp = user_profile.get_kick_at_timestamp(
-                self._user_profile_params
+                UserProfileParams(ichbin_waiting_time=chat_settings.ichbin_waiting_time)
             )
             if kick_at_timestamp is None:
                 logging.warning(
@@ -516,12 +486,12 @@ class EventProcessor:
                     current_timestamp,
                 )
                 return
-            if not self._is_dark_launch(user_chat_id.chat_id):
+            if chat_settings.dark_launch_sink_chat_id is None:
                 logging.info("Kicking user %r", user_chat_id)
                 await self._bot.ban_chat_member(
                     chat_id=user_chat_id.chat_id,
                     user_id=user_chat_id.user_id,
-                    until_date=self._config.ban_duration,
+                    until_date=chat_settings.ban_duration,
                 )
             else:
                 logging.info(
@@ -531,7 +501,9 @@ class EventProcessor:
             user_profile.on_kicked(kick_timestamp=LocalUTCTimestamp(time.time()))
             try:
                 await self._send_message(
-                    user_profile, USER_IS_KICKED_HTML, BotApiMessageType.USER_IS_KICKED
+                    user_profile,
+                    chat_settings.bot_reply_templates.user_is_kicked,
+                    BotApiMessageType.USER_IS_KICKED,
                 )
             except Exception:
                 logging.error(

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, TypeAdapter
 from typing import Literal, Annotated, Union
+import aiogram.types
 from welcome_bot_app.model import (
     LocalUTCTimestamp,
     TelethonUTCTimestamp,
@@ -30,6 +31,19 @@ class BasicUserInfo(BaseModel):
     last_name: str | None
 
 
+class BotApiChatInfo(BaseModel):
+    chat_type: str
+    title: str | None
+    username: str | None
+
+    @classmethod
+    def from_bot_api_chat(cls, chat: aiogram.types.Chat) -> "BotApiChatInfo":
+        return cls(chat_type=chat.type, title=chat.title, username=chat.username)
+
+    def is_private(self) -> bool:
+        return self.chat_type == "private"
+
+
 class BotApiNewTextMessage(BaseEvent):
     """New text message from user."""
 
@@ -41,6 +55,7 @@ class BotApiNewTextMessage(BaseEvent):
     is_edited: bool
     message_id: BotApiMessageId
     tg_timestamp: BotApiUTCTimestamp
+    chat_info: BotApiChatInfo
 
 
 class BotApiChatMemberJoined(BaseEvent):
@@ -51,6 +66,7 @@ class BotApiChatMemberJoined(BaseEvent):
     user_chat_id: UserChatId
     basic_user_info: BasicUserInfo
     tg_timestamp: BotApiUTCTimestamp
+    chat_info: BotApiChatInfo
 
 
 class BotApiChatMemberLeft(BaseEvent):
@@ -60,6 +76,7 @@ class BotApiChatMemberLeft(BaseEvent):
 
     user_chat_id: UserChatId
     tg_timestamp: BotApiUTCTimestamp
+    chat_info: BotApiChatInfo
 
 
 # Telethon events

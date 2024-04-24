@@ -1,6 +1,8 @@
 import sqlite3
 import logging
 from typing import Any, List
+from welcome_bot_app.model.chat_settings import ChatSettings
+from welcome_bot_app.model.events import BotApiChatInfo
 from welcome_bot_app.model.user_profile import (
     BotApiMessage,
     BotApiMessageType,
@@ -81,6 +83,86 @@ class SqliteUserStorage:
                            ON BotMessages (message_id, user_id, chat_id)
                            WHERE delete_timestamp IS NULL;
             """)
+
+        # Tracks chats where the bot is present.
+        self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS BotChats (
+                    -- Chat id.
+                    chat_id INTEGER PRIMARY KEY NOT NULL,
+                    -- BotApiChatInfo as json.
+                    chat_info TEXT NOT NULL
+                )
+            """)
+
+        self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS ChatSettings (
+                    -- Chat id.
+                    chat_id INTEGER PRIMARY KEY NOT NULL,
+                    -- ChatSettings as json.
+                    chat_settings TEXT NOT NULL
+                )
+            """)
+
+    def add_chat(self, chat_id: ChatId, chat_info: BotApiChatInfo) -> None:
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT OR IGNORE INTO BotChats
+                    (chat_id, chat_info)
+                VALUES (?, ?)
+                ON CONFLICT (chat_id)
+                DO UPDATE SET
+                    chat_info = excluded.chat_info;
+                """,
+                (chat_id, chat_info.model_dump_json(indent=2)),
+            )
+
+    def get_chats(self) -> dict[ChatId, BotApiChatInfo]:
+        cursor = self._conn.cursor()
+        cursor.execute(
+            """
+                       SELECT chat_id, chat_info
+                       FROM BotChats;
+                       """
+        )
+        return {
+            ChatId(row[0]): BotApiChatInfo.model_validate_json(row[1])
+            for row in cursor.fetchall()
+        }
+
+    def remove_chat(self, chat_id: ChatId) -> None:
+        with self._conn:
+            self._conn.execute(
+                """
+                DELETE FROM BotChats
+                WHERE chat_id = ?;
+                """,
+                (chat_id,),
+            )
+
+    def get_chat_settings(self, chat_id: ChatId) -> ChatSettings:
+        cursor = self._conn.cursor()
+        cursor.execute(
+            """SELECT chat_settings FROM ChatSettings WHERE chat_id = ?;""", (chat_id,)
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return ChatSettings()
+        return ChatSettings.model_validate_json(row[0])
+
+    def set_chat_settings(self, chat_id: ChatId, chat_settings: ChatSettings) -> None:
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO ChatSettings
+                    (chat_id, chat_settings)
+                VALUES (?, ?)
+                ON CONFLICT (chat_id)
+                DO UPDATE SET
+                    chat_settings = excluded.chat_settings;
+                """,
+                (chat_id, chat_settings.model_dump_json(indent=2)),
+            )
 
     def _bot_message_from_row(
         self,

@@ -7,6 +7,7 @@ import asyncio
 from datetime import timezone
 from welcome_bot_app.event_queue import BaseEventQueue
 from welcome_bot_app.model.events import (
+    BotApiChatInfo,
     BotApiChatMemberJoined,
     BotApiChatMemberLeft,
     BotApiNewTextMessage,
@@ -45,6 +46,7 @@ def extract_bot_events(
                 tg_timestamp=BotApiUTCTimestamp(
                     message.date.astimezone(timezone.utc).timestamp()
                 ),
+                chat_info=BotApiChatInfo.from_bot_api_chat(message.chat),
             )
     elif message.content_type == aiogram.types.ContentType.LEFT_CHAT_MEMBER:
         if message.left_chat_member is None:
@@ -62,6 +64,7 @@ def extract_bot_events(
             tg_timestamp=BotApiUTCTimestamp(
                 message.date.astimezone(timezone.utc).timestamp()
             ),
+            chat_info=BotApiChatInfo.from_bot_api_chat(message.chat),
         )
     elif message.text is not None:
         # Ignore messages from non-users for now.
@@ -85,6 +88,7 @@ def extract_bot_events(
             tg_timestamp=BotApiUTCTimestamp(
                 message.date.astimezone(timezone.utc).timestamp()
             ),
+            chat_info=BotApiChatInfo.from_bot_api_chat(message.chat),
         )
 
 
