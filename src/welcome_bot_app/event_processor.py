@@ -11,7 +11,13 @@ import telethon
 import contextlib
 import aiogram.utils.formatting
 from datetime import timedelta
-from welcome_bot_app.model import BotApiMessageId, LocalUTCTimestamp, UserChatId, UserId
+from welcome_bot_app.model import (
+    BotApiMessageId,
+    ChatId,
+    LocalUTCTimestamp,
+    UserChatId,
+    UserId,
+)
 from welcome_bot_app.model.user_profile import (
     BotApiMessage,
     BotApiMessageType,
@@ -155,6 +161,7 @@ class EventProcessor:
         extra_ichbin_waiting_time_after_rejoining: timedelta = timedelta(hours=1)
         # How often should we check for periodic stuff, like users to kick,
         periodic_event_interval: timedelta = timedelta(seconds=3)
+        dark_launch_sink_chat_id: Optional[ChatId] = None
 
     def __init__(
         self,
@@ -165,6 +172,9 @@ class EventProcessor:
         user_storage: SqliteUserStorage,
     ):
         self._config = config
+
+        # TODO: Add ability to configure this via Telegram.
+        self._config.dark_launch_sink_chat_id = ChatId(-1002052048428)
 
         self._bot = bot
         self._telethon_client = telethon_client
@@ -297,11 +307,23 @@ class EventProcessor:
         message_template: safe_html_str,
         message_type: BotApiMessageType,
     ) -> BotApiMessage:
-        sent_message = await self._bot.send_message(
-            user_profile.user_chat_id.chat_id,
-            create_message_html(message_template, user_profile),
-            parse_mode=ParseMode.HTML,
-        )
+        if not self._is_dark_launch(user_profile.user_chat_id.chat_id):
+            sent_message = await self._bot.send_message(
+                user_profile.user_chat_id.chat_id,
+                create_message_html(message_template, user_profile),
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            assert self._config.dark_launch_sink_chat_id is not None
+            logging.info(
+                "Redirecting message to dark launch chat %r",
+                self._config.dark_launch_sink_chat_id,
+            )
+            sent_message = await self._bot.send_message(
+                self._config.dark_launch_sink_chat_id,
+                create_message_html(message_template, user_profile),
+                parse_mode=ParseMode.HTML,
+            )
         sent_timestamp = LocalUTCTimestamp(time.time())
         bot_api_message = BotApiMessage(
             user_chat_id=user_profile.user_chat_id,
@@ -392,14 +414,32 @@ class EventProcessor:
             if current_timestamp > msg.sent_timestamp + ttl.total_seconds():
                 await self._delete_message(msg, current_timestamp)
 
+    def _is_dark_launch(self, chat_id: ChatId) -> bool:
+        return (
+            self._config.dark_launch_sink_chat_id is not None
+            and self._config.dark_launch_sink_chat_id != chat_id
+        )
+
     async def _delete_message(
         self, message: BotApiMessage, current_timestamp: LocalUTCTimestamp
     ) -> None:
         try:
-            logging.info("Trying to delete message %r", message)
-            await self._bot.delete_message(
-                chat_id=message.user_chat_id.chat_id, message_id=message.message_id
-            )
+            if not self._is_dark_launch(message.user_chat_id.chat_id):
+                logging.info("Trying to delete message %r", message)
+                await self._bot.delete_message(
+                    chat_id=message.user_chat_id.chat_id, message_id=message.message_id
+                )
+            else:
+                assert self._config.dark_launch_sink_chat_id is not None
+                logging.info(
+                    "Deleting message %r in dark launch chat %r",
+                    message,
+                    self._config.dark_launch_sink_chat_id,
+                )
+                await self._bot.delete_message(
+                    chat_id=self._config.dark_launch_sink_chat_id,
+                    message_id=message.message_id,
+                )
             self._user_storage.mark_bot_message_as_deleted(
                 message.user_chat_id,
                 message.message_id,
@@ -432,11 +472,18 @@ class EventProcessor:
                     current_timestamp,
                 )
                 return
-            await self._bot.ban_chat_member(
-                chat_id=user_chat_id.chat_id,
-                user_id=user_chat_id.user_id,
-                until_date=self._config.ban_duration,
-            )
+            if not self._is_dark_launch(user_chat_id.chat_id):
+                logging.info("Kicking user %r", user_chat_id)
+                await self._bot.ban_chat_member(
+                    chat_id=user_chat_id.chat_id,
+                    user_id=user_chat_id.user_id,
+                    until_date=self._config.ban_duration,
+                )
+            else:
+                logging.info(
+                    "Would have kicked user %r, but dark launch is enabled.",
+                    user_chat_id,
+                )
             user_profile.on_kicked(kick_timestamp=LocalUTCTimestamp(time.time()))
             try:
                 await self._send_message(
