@@ -162,6 +162,7 @@ class EventProcessor:
         # How often should we check for periodic stuff, like users to kick,
         periodic_event_interval: timedelta = timedelta(seconds=3)
         dark_launch_sink_chat_id: Optional[ChatId] = None
+        admin_user_id: UserId = UserId(6776217955)
 
     def __init__(
         self,
@@ -249,7 +250,41 @@ class EventProcessor:
         else:
             logging.critical("BUG: Unknown event: %s, skipping.", event)
 
+    async def _on_admin_message(self, event: BotApiNewTextMessage) -> None:
+        text = event.text
+        command, _, rest = text.partition(" ")
+        try:
+            if command == "/message":
+                destination_chat_id_str, _, message = rest.partition(" ")
+                destination_chat_id = ChatId(int(destination_chat_id_str))
+                await self._bot.send_message(chat_id=destination_chat_id, text=message)
+            else:
+                raise ValueError(f"Unknown command: {command}")
+        except Exception:
+            logging.error("Failed to execute admin command: %s", text, exc_info=True)
+            response_text = "Failed to execute command. Traceback is in the logs."
+            await self._bot.send_message(
+                chat_id=event.user_chat_id.chat_id,
+                text=response_text,
+                reply_parameters=aiogram.types.ReplyParameters(
+                    message_id=event.message_id, chat_id=event.user_chat_id.chat_id
+                ),
+            )
+        else:
+            response_text = "Command executed successfully."
+            await self._bot.send_message(
+                chat_id=event.user_chat_id.chat_id,
+                text=response_text,
+                reply_parameters=aiogram.types.ReplyParameters(
+                    message_id=event.message_id, chat_id=event.user_chat_id.chat_id
+                ),
+            )
+
     async def _on_bot_api_new_text_message(self, event: BotApiNewTextMessage) -> None:
+        if event.user_chat_id.user_id == self._config.admin_user_id:
+            logging.info("Got a message from admin: %r", event)
+            await self._on_admin_message(event)
+            return
         with self._open_user_profile(event.user_chat_id) as user_profile:
             user_profile.basic_user_info = event.basic_user_info
             if "#ichbin" not in event.text:
