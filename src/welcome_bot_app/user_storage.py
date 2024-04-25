@@ -1,11 +1,10 @@
 import sqlite3
 import logging
 from typing import Any, List
-from welcome_bot_app.model.chat_settings import ChatSettings
+from welcome_bot_app.model.chat_settings import BotReplyType, ChatSettings
 from welcome_bot_app.model.events import BotApiChatInfo
 from welcome_bot_app.model.user_profile import (
     BotApiMessage,
-    BotApiMessageType,
     PresenceInfo,
     UserProfile,
     UserProfileParams,
@@ -63,8 +62,8 @@ class SqliteUserStorage:
                     chat_id INTEGER NOT NULL,
                     -- Message id.
                     message_id INTEGER NOT NULL,
-                    -- Type of the message (e.g. WELCOME, ICHBIN_REQUEST, etc), corresponding to BotApiMessageType enum.
-                    message_type STRING NOT NULL,
+                    -- Type of the reply (e.g. WELCOME, ICHBIN_REQUEST, etc), corresponding to BotReplyType enum.
+                    reply_type STRING NOT NULL,
                     -- Time when this message was sent.
                     sent_timestamp REAL NOT NULL,
                     -- Time when we (or someone else) deleted the message.
@@ -169,14 +168,14 @@ class SqliteUserStorage:
         user_id: Any,
         chat_id: Any,
         message_id: Any,
-        message_type: Any,
+        reply_type: Any,
         sent_timestamp: Any,
     ) -> BotApiMessage:
         # TODO: Handle exceptions during conversion?
         return BotApiMessage(
             user_chat_id=UserChatId(user_id=UserId(user_id), chat_id=ChatId(chat_id)),
             message_id=BotApiMessageId(message_id),
-            message_type=BotApiMessageType(message_type),
+            reply_type=BotReplyType(reply_type),
             sent_timestamp=LocalUTCTimestamp(sent_timestamp),
         )
 
@@ -185,7 +184,7 @@ class SqliteUserStorage:
         cursor = self._conn.cursor()
         cursor.execute(
             """
-                       SELECT user_id, chat_id, message_id, message_type, sent_timestamp
+                       SELECT user_id, chat_id, message_id, reply_type, sent_timestamp
                        FROM BotMessages
                        WHERE delete_timestamp is NULL;
                        """
@@ -218,14 +217,14 @@ class SqliteUserStorage:
             self._conn.execute(
                 """
                         INSERT OR IGNORE INTO BotMessages
-                            (message_id, user_id, chat_id, message_type, sent_timestamp)
+                            (message_id, user_id, chat_id, reply_type, sent_timestamp)
                         VALUES (?, ?, ?, ?, ?);
                        """,
                 (
                     bot_api_message.message_id,
                     bot_api_message.user_chat_id.user_id,
                     bot_api_message.user_chat_id.chat_id,
-                    bot_api_message.message_type.value,
+                    bot_api_message.reply_type.value,
                     bot_api_message.sent_timestamp,
                 ),
             )

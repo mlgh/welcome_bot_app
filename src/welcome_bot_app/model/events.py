@@ -35,10 +35,18 @@ class BotApiChatInfo(BaseModel):
     chat_type: str
     title: str | None
     username: str | None
+    first_name: str | None
+    last_name: str | None
 
     @classmethod
     def from_bot_api_chat(cls, chat: aiogram.types.Chat) -> "BotApiChatInfo":
-        return cls(chat_type=chat.type, title=chat.title, username=chat.username)
+        return cls(
+            chat_type=chat.type,
+            title=chat.title,
+            username=chat.username,
+            first_name=chat.first_name,
+            last_name=chat.last_name,
+        )
 
     def is_private(self) -> bool:
         return self.chat_type == "private"

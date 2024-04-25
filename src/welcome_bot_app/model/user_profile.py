@@ -1,7 +1,7 @@
 from pydantic import BaseModel
-from enum import Enum
 from datetime import timedelta
 from welcome_bot_app.model import UserChatId, LocalUTCTimestamp, BotApiMessageId
+from welcome_bot_app.model.chat_settings import BotReplyType
 from welcome_bot_app.model.events import BasicUserInfo
 
 
@@ -12,21 +12,13 @@ class UserProfileParams(BaseModel):
     ichbin_waiting_time: timedelta
 
 
-class BotApiMessageType(Enum):
-    ICHBIN_REQUEST = "ICHBIN_REQUEST"
-    WELCOME = "WELCOME"
-    WELCOME_AGAIN = "WELCOME_AGAIN"
-    NOT_MUCH_TIME_LEFT_TO_WRITE_ICHBIN = "NOT_MUCH_TIME_LEFT_TO_WRITE_ICHBIN"
-    USER_IS_KICKED = "USER_IS_KICKED"
-
-
 class BotApiMessage(BaseModel):
     # User + chat who sent this message
     user_chat_id: UserChatId
     # Message id in this chat.
     message_id: BotApiMessageId
-    # Type of the message.
-    message_type: BotApiMessageType
+    # Type of the bot reply.
+    reply_type: BotReplyType
     # Timestamp when this message was sent.
     sent_timestamp: LocalUTCTimestamp
 
