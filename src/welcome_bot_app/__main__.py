@@ -11,7 +11,7 @@ from welcome_bot_app import bot_api_loop
 from welcome_bot_app import telethon_loop
 from welcome_bot_app.event_processor import EventProcessor
 from welcome_bot_app.event_queue import SqliteEventQueue
-from welcome_bot_app.user_storage import SqliteUserStorage
+from welcome_bot_app.bot_storage import BotStorage
 
 
 async def main() -> None:
@@ -43,7 +43,12 @@ async def main() -> None:
         "--event-log-file", help="Path to the event log file", required=True
     )
     parser.add_argument(
-        "--user-storage-file", help="Path to the user storage file", required=True
+        "--storage-url",
+        help="SqlAlchemy URL where data about users, chats will be stored.",
+        required=True,
+    )
+    parser.add_argument(
+        "--log-sql", help="Enable SqlAlchemy commands.", action="store_true"
     )
 
     args = parser.parse_args()
@@ -78,13 +83,13 @@ async def main() -> None:
         db_path=args.event_queue_file, options=SqliteEventQueue.Options()
     )
     event_log = bot_api_loop.EventLog(args.event_log_file)
-    user_storage = SqliteUserStorage(args.user_storage_file)
+    bot_storage = BotStorage(args.storage_url, enable_echo=args.log_sql)
     event_processor = EventProcessor(
         EventProcessor.Config(),
         bot,
         telethon_client,
         event_queue=event_queue,
-        user_storage=user_storage,
+        bot_storage=bot_storage,
     )
 
     all_tasks = []

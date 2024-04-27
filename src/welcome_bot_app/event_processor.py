@@ -28,7 +28,7 @@ from welcome_bot_app.safe_html import (
     safe_html_str,
     substitute_html,
 )
-from welcome_bot_app.user_storage import SqliteUserStorage
+from welcome_bot_app.bot_storage import BotStorage
 from welcome_bot_app.event_queue import BaseEventQueue
 from welcome_bot_app.model.events import (
     BaseEvent,
@@ -76,17 +76,17 @@ def _create_user_mention_html(
 @contextlib.contextmanager
 def open_user_profile(
     user_chat_id: UserChatId,
-    user_storage: SqliteUserStorage,
+    bot_storage: BotStorage,
     chat_settings: ChatSettings,
 ) -> Iterator[UserProfile]:
-    user_profile = user_storage.get_profile(user_chat_id)
+    user_profile = bot_storage.get_profile(user_chat_id)
     original_json = user_profile.model_dump_json()
     yield user_profile
     modified_json = user_profile.model_dump_json()
     if original_json == modified_json:
         return
     logging.info("Saving profile of user %r", user_chat_id)
-    user_storage.save_profile(
+    bot_storage.save_profile(
         user_profile,
         UserProfileParams(ichbin_waiting_time=chat_settings.ichbin_waiting_time),
     )
@@ -106,13 +106,13 @@ class EventProcessor:
         bot: aiogram.Bot,
         telethon_client: Optional[telethon.TelegramClient],
         event_queue: BaseEventQueue,
-        user_storage: SqliteUserStorage,
+        bot_storage: BotStorage,
     ):
         self._config = config
         self._bot = bot
         self._telethon_client = telethon_client
         self._event_queue = event_queue
-        self._user_storage = user_storage
+        self._bot_storage = bot_storage
         self._last_periodic_event_timestamp = LocalUTCTimestamp(0.0)
         self._stopped = False
 
@@ -121,7 +121,7 @@ class EventProcessor:
         self, user_chat_id: UserChatId, chat_settings: ChatSettings
     ) -> Iterator[UserProfile]:
         with open_user_profile(
-            user_chat_id, self._user_storage, chat_settings
+            user_chat_id, self._bot_storage, chat_settings
         ) as user_profile:
             yield user_profile
 
@@ -199,7 +199,7 @@ class EventProcessor:
                 await self._bot.send_message(chat_id=destination_chat_id, text=message)
                 response_message = "Message sent!"
             elif command == "/lancet_chats":
-                chats = self._user_storage.get_chats()
+                chats = self._bot_storage.get_chats()
                 chat_lines = []
                 for chat_id, chat_info in chats.items():
                     chat_lines.append(f"{chat_id}: {chat_info!r}")
@@ -207,14 +207,25 @@ class EventProcessor:
             elif command == "/lancet_get_settings":
                 chat_id_str, _, _ = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
-                chat_settings = self._user_storage.get_chat_settings(chat_id)
+                chat_settings = self._bot_storage.get_chat_settings(chat_id)
                 response_message = f"Settings for chat {chat_id}:\n{chat_settings.model_dump_json(indent=2)}"
             elif command == "/lancet_set_settings":
                 chat_id_str, _, rest = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
                 chat_settings = ChatSettings.model_validate_json(rest)
-                self._user_storage.set_chat_settings(chat_id, chat_settings)
+                self._bot_storage.set_chat_settings(chat_id, chat_settings)
                 response_message = f"Settings for chat {chat_id} updated."
+            elif command == "/lancet_set_message":
+                chat_id_str, _, rest = rest.partition(" ")
+                chat_id = ChatId(int(chat_id_str))
+                bot_reply_type_str, _, message_template = rest.partition(" ")
+                bot_reply_type = BotReplyType(bot_reply_type_str)
+                chat_settings = self._bot_storage.get_chat_settings(chat_id)
+                chat_settings.bot_replies.get_reply(
+                    bot_reply_type
+                ).template = safe_html_str(message_template)
+                self._bot_storage.set_chat_settings(chat_id, chat_settings)
+                response_message = f"Message template for reply type {bot_reply_type.value} is set to:\n{message_template}"
             else:
                 raise ValueError(f"Unknown command: {command}")
         except Exception:
@@ -238,16 +249,17 @@ class EventProcessor:
                 ),
             )
 
-    def _is_admin(self, user_id: UserId, chat_settings: ChatSettings) -> bool:
+    def _is_admin(self, user_id: UserId) -> bool:
         if user_id == self._config.root_admin_user_id:
             return True
-        return user_id in chat_settings.admins
+        # TODO: Add ability to set chat-specific admins.
+        return False
 
     async def _on_bot_api_new_text_message(self, event: BotApiNewTextMessage) -> None:
-        self._user_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
+        self._bot_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
 
-        chat_settings = self._user_storage.get_chat_settings(event.user_chat_id.chat_id)
-        if self._is_admin(event.user_chat_id.user_id, chat_settings):
+        chat_settings = self._bot_storage.get_chat_settings(event.user_chat_id.chat_id)
+        if self._is_admin(event.user_chat_id.user_id):
             logging.info("Got a message from admin: %r", event)
             await self._on_admin_message(event)
             return
@@ -268,8 +280,8 @@ class EventProcessor:
         return user_id == (await self._bot.me()).id
 
     async def _on_bot_api_new_chat_member(self, event: BotApiChatMemberJoined) -> None:
-        self._user_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
-        chat_settings = self._user_storage.get_chat_settings(event.user_chat_id.chat_id)
+        self._bot_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
+        chat_settings = self._bot_storage.get_chat_settings(event.user_chat_id.chat_id)
         with self._open_user_profile(event.user_chat_id, chat_settings) as user_profile:
             user_profile.basic_user_info = event.basic_user_info
             user_profile.on_joined(event.recv_timestamp)
@@ -291,7 +303,7 @@ class EventProcessor:
                 )
                 user_profile.ichbin_request_timestamp = bot_message.sent_timestamp
                 return
-            chat_settings = self._user_storage.get_chat_settings(
+            chat_settings = self._bot_storage.get_chat_settings(
                 event.user_chat_id.chat_id
             )
             kick_at_timestamp = user_profile.get_kick_at_timestamp(
@@ -356,18 +368,18 @@ class EventProcessor:
             reply_type=bot_reply_type,
             sent_timestamp=sent_timestamp,
         )
-        self._user_storage.add_bot_message(bot_api_message)
+        self._bot_storage.add_bot_message(bot_api_message)
         return bot_api_message
 
     async def _on_bot_api_chat_member_left(self, event: BotApiChatMemberLeft) -> None:
         if await self._is_me(event.user_chat_id.user_id):
-            self._user_storage.remove_chat(event.user_chat_id.chat_id)
-        chat_settings = self._user_storage.get_chat_settings(event.user_chat_id.chat_id)
+            self._bot_storage.remove_chat(event.user_chat_id.chat_id)
+        chat_settings = self._bot_storage.get_chat_settings(event.user_chat_id.chat_id)
         with self._open_user_profile(event.user_chat_id, chat_settings) as user_profile:
             user_profile.on_left(left_timestamp=event.recv_timestamp)
 
     async def _on_periodic_event(self, event: PeriodicEvent) -> None:
-        users_to_kick = self._user_storage.get_users_to_kick(event.recv_timestamp)
+        users_to_kick = self._bot_storage.get_users_to_kick(event.recv_timestamp)
         for user_chat_id in users_to_kick:
             try:
                 await self._verify_and_kick_user(user_chat_id, event.recv_timestamp)
@@ -380,14 +392,14 @@ class EventProcessor:
         messages_per_user: DefaultDict[UserChatId, List[BotApiMessage]] = defaultdict(
             list
         )
-        for bot_api_message in self._user_storage.get_bot_messages():
+        for bot_api_message in self._bot_storage.get_bot_messages():
             if bot_api_message.reply_type == BotReplyType.WELCOME:
                 welcome_messages_per_chat[bot_api_message.user_chat_id.chat_id].append(
                     bot_api_message
                 )
             messages_per_user[bot_api_message.user_chat_id].append(bot_api_message)
         for chat_id, welcome_messages in welcome_messages_per_chat.items():
-            chat_settings = self._user_storage.get_chat_settings(chat_id)
+            chat_settings = self._bot_storage.get_chat_settings(chat_id)
             welcome_messages = await self._delete_all_but_last_message(
                 welcome_messages,
                 event.recv_timestamp,
@@ -398,7 +410,7 @@ class EventProcessor:
                 welcome_messages, event.recv_timestamp, delete_welcome_messages=True
             )
         for user, messages in messages_per_user.items():
-            chat_settings = self._user_storage.get_chat_settings(user.chat_id)
+            chat_settings = self._bot_storage.get_chat_settings(user.chat_id)
             messages = await self._delete_all_but_last_message(
                 messages,
                 event.recv_timestamp,
@@ -434,7 +446,7 @@ class EventProcessor:
         for msg in messages:
             if msg.reply_type == BotReplyType.WELCOME and not delete_welcome_messages:
                 continue
-            chat_settings = self._user_storage.get_chat_settings(
+            chat_settings = self._bot_storage.get_chat_settings(
                 msg.user_chat_id.chat_id
             )
             msg_ttl = chat_settings.bot_replies.get_reply(msg.reply_type).ttl
@@ -463,7 +475,7 @@ class EventProcessor:
                     chat_id=chat_settings.dark_launch_sink_chat_id,
                     message_id=message.message_id,
                 )
-            self._user_storage.mark_bot_message_as_deleted(
+            self._bot_storage.mark_bot_message_as_deleted(
                 message.user_chat_id,
                 message.message_id,
                 delete_timestamp=current_timestamp,
@@ -477,7 +489,7 @@ class EventProcessor:
         current_timestamp: LocalUTCTimestamp,
     ) -> None:
         logging.info("Attempting to kick user %r", user_chat_id)
-        chat_settings = self._user_storage.get_chat_settings(user_chat_id.chat_id)
+        chat_settings = self._bot_storage.get_chat_settings(user_chat_id.chat_id)
         with self._open_user_profile(user_chat_id, chat_settings) as user_profile:
             kick_at_timestamp = user_profile.get_kick_at_timestamp(
                 UserProfileParams(ichbin_waiting_time=chat_settings.ichbin_waiting_time)
@@ -503,12 +515,17 @@ class EventProcessor:
                     user_id=user_chat_id.user_id,
                     until_date=chat_settings.ban_duration,
                 )
+                user_profile.on_kicked(
+                    kick_timestamp=current_timestamp, is_dark_launch=False
+                )
             else:
                 logging.info(
                     "Would have kicked user %r, but dark launch is enabled.",
                     user_chat_id,
                 )
-            user_profile.on_kicked(kick_timestamp=LocalUTCTimestamp(time.time()))
+                user_profile.on_kicked(
+                    kick_timestamp=current_timestamp, is_dark_launch=True
+                )
             try:
                 await self._send_bot_reply(
                     user_profile,

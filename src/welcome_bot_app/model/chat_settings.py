@@ -1,8 +1,7 @@
-from typing import List
 from pydantic import BaseModel
 from enum import Enum
 
-from welcome_bot_app.model import ChatId, UserId
+from welcome_bot_app.model import ChatId
 from datetime import timedelta
 
 from welcome_bot_app.safe_html import safe_html_str
@@ -30,6 +29,10 @@ class BotReply(BaseModel):
     @property
     def template(self) -> safe_html_str:
         return safe_html_str(self.template_html)
+
+    @template.setter
+    def template(self, value: safe_html_str) -> None:
+        self.template_html = str(value)
 
 
 class BotReplyType(Enum):
@@ -81,6 +84,4 @@ class ChatSettings(BaseModel):
     ichbin_waiting_time: timedelta = timedelta(days=3)
     # If the user joined the chat 1 month ago, then rejoined it today, we should not kick him, instead we should give him some grace time to write the ichbin message.
     extra_ichbin_waiting_time_after_rejoining: timedelta = timedelta(hours=1)
-    # TODO: Update defaults, once the bot is not in the dark launch mode.
-    dark_launch_sink_chat_id: ChatId | None = ChatId(-1002052048428)
-    admins: List[UserId] = []
+    dark_launch_sink_chat_id: ChatId | None = None

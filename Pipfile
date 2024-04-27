@@ -8,6 +8,7 @@ aiogram = "*"
 pillow = "*"
 welcome-bot-app = {file = "src", editable = true}
 telethon = "*"
+sqlalchemy = "*"
 
 [dev-packages]
 ruff = "*"

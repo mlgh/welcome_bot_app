@@ -30,9 +30,17 @@ class PresenceInfo(BaseModel):
     kick_timestamp: LocalUTCTimestamp | None = None
     # Timestampt when the user left.
     left_timestamp: LocalUTCTimestamp | None = None
+    # Treat as if the user has left.
+    treat_as_left: bool = False
 
     def is_present(self) -> bool:
-        return self.joined_timestamp is not None and self.left_timestamp is None
+        if self.treat_as_left:
+            return False
+        if self.joined_timestamp is None:
+            return False
+        if self.left_timestamp is not None:
+            return False
+        return True
 
 
 class UserProfile(BaseModel):
@@ -57,8 +65,12 @@ class UserProfile(BaseModel):
     def on_left(self, left_timestamp: LocalUTCTimestamp) -> None:
         self.presence_info.left_timestamp = left_timestamp
 
-    def on_kicked(self, kick_timestamp: LocalUTCTimestamp) -> None:
+    def on_kicked(
+        self, kick_timestamp: LocalUTCTimestamp, is_dark_launch: bool
+    ) -> None:
         self.presence_info.kick_timestamp = kick_timestamp
+        if is_dark_launch:
+            self.presence_info.treat_as_left = True
 
     def first_name(self) -> str | None:
         return (

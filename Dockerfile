@@ -22,4 +22,4 @@ CMD exec pipenv run python -m welcome_bot_app \
   --bot-token-file /run/secrets/BOT_TOKEN \
   --event-queue-file /welcome_app/db/queue.db \
   --event-log-file /welcome_app/db/log.db \
-  --user-storage-file=/welcome_app/db/users.db
+  --storage-url=sqlite:////welcome_app/db/users.db
