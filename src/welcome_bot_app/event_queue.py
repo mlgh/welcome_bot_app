@@ -98,6 +98,7 @@ class SqliteEventQueue(BaseEventQueue):
 
     def _create_table(self) -> None:
         self._conn.execute("PRAGMA strict=ON")
+        self._conn.execute("PRAGMA journal_mode=wal")
         self._conn.execute("""CREATE TABLE IF NOT EXISTS Events (
                           -- Unique event id.
                           event_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,

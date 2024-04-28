@@ -1,4 +1,6 @@
 import sqlalchemy as sa
+import sqlite3
+import sqlalchemy.event as sa_event
 from typing import Any, List
 from welcome_bot_app.model.chat_settings import BotReplyType, ChatSettings
 from welcome_bot_app.model.events import BotApiChatInfo
@@ -25,6 +27,8 @@ class BotStorage:
             raise NotImplementedError(
                 "We are using sqlite_where for indexes.", self._engine.driver
             )
+        sa_event.listen(self._engine, "connect", self._set_conn_pragmas)
+
         self._sa_metadata = sa.MetaData()
         # Tracks users that need to write ichbin.
         self._user_profiles = sa.Table(
@@ -88,6 +92,9 @@ class BotStorage:
             sa.Column("chat_settings", sa.Text, nullable=False),
         )
         self._sa_metadata.create_all(self._engine)
+
+    def _set_conn_pragmas(self, dbapi_con: sqlite3.Connection, con_record: Any) -> None:
+        dbapi_con.execute("PRAGMA journal_mode=WAL")
 
     def add_chat(self, chat_id: ChatId, chat_info: BotApiChatInfo) -> None:
         with self._engine.connect() as conn:

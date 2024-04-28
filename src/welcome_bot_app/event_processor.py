@@ -1,4 +1,5 @@
 import asyncio
+import difflib
 import logging
 import time
 from collections import defaultdict
@@ -81,11 +82,22 @@ def open_user_profile(
 ) -> Iterator[UserProfile]:
     user_profile = bot_storage.get_profile(user_chat_id)
     original_json = user_profile.model_dump_json()
+    pretty_original_json = user_profile.model_dump_json(indent=2)
     yield user_profile
     modified_json = user_profile.model_dump_json()
     if original_json == modified_json:
         return
+    pretty_modified_json = user_profile.model_dump_json(indent=2)
+    diff = list(
+        difflib.unified_diff(
+            pretty_original_json.splitlines(), pretty_modified_json.splitlines(), n=0
+        )
+    )
     logging.info("Saving profile of user %r", user_chat_id)
+    # First two lines are file names.
+    for line in diff[2:]:
+        if line.startswith("-") or line.startswith("+"):
+            logging.info("Diff: %s: %s", user_chat_id, line)
     bot_storage.save_profile(
         user_profile,
         UserProfileParams(ichbin_waiting_time=chat_settings.ichbin_waiting_time),
@@ -99,6 +111,7 @@ class EventProcessor:
         # TODO: Make this a flag.
         # Global admin, @icebergler
         root_admin_user_id: UserId = UserId(290342629)
+        chat_cmd_prefix: str = "/lancet_"
 
     def __init__(
         self,
@@ -190,7 +203,7 @@ class EventProcessor:
         response_message: str | None = None
         try:
             # TODO: Add easier settings handling.
-            if command == "/lancet_message":
+            if command == self._config.chat_cmd_prefix + "message":
                 destination_chat_id_str, _, message = rest.partition(" ")
                 destination_chat_id = ChatId(int(destination_chat_id_str))
                 logging.info(
@@ -198,24 +211,24 @@ class EventProcessor:
                 )
                 await self._bot.send_message(chat_id=destination_chat_id, text=message)
                 response_message = "Message sent!"
-            elif command == "/lancet_chats":
+            elif command == self._config.chat_cmd_prefix + "chats":
                 chats = self._bot_storage.get_chats()
                 chat_lines = []
                 for chat_id, chat_info in chats.items():
                     chat_lines.append(f"{chat_id}: {chat_info!r}")
                 response_message = "Chats:\n" + "\n".join(chat_lines)
-            elif command == "/lancet_get_settings":
+            elif command == self._config.chat_cmd_prefix + "get_settings":
                 chat_id_str, _, _ = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
                 chat_settings = self._bot_storage.get_chat_settings(chat_id)
                 response_message = f"Settings for chat {chat_id}:\n{chat_settings.model_dump_json(indent=2)}"
-            elif command == "/lancet_set_settings":
+            elif command == self._config.chat_cmd_prefix + "set_settings":
                 chat_id_str, _, rest = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
                 chat_settings = ChatSettings.model_validate_json(rest)
                 self._bot_storage.set_chat_settings(chat_id, chat_settings)
                 response_message = f"Settings for chat {chat_id} updated."
-            elif command == "/lancet_set_message":
+            elif command == self._config.chat_cmd_prefix + "set_message":
                 chat_id_str, _, rest = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
                 bot_reply_type_str, _, message_template = rest.partition(" ")
@@ -259,8 +272,10 @@ class EventProcessor:
         self._bot_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
 
         chat_settings = self._bot_storage.get_chat_settings(event.user_chat_id.chat_id)
-        if self._is_admin(event.user_chat_id.user_id):
-            logging.info("Got a message from admin: %r", event)
+        if event.text.startswith(self._config.chat_cmd_prefix) and self._is_admin(
+            event.user_chat_id.user_id
+        ):
+            logging.info("Got a command-like message from admin: %r", event)
             await self._on_admin_message(event)
             return
         with self._open_user_profile(event.user_chat_id, chat_settings) as user_profile:
@@ -268,7 +283,15 @@ class EventProcessor:
             if "#ichbin" not in event.text:
                 return
             if not user_profile.is_waiting_for_ichbin_message():
+                logging.info(
+                    "User %s is not waiting for ichbin message", event.user_chat_id
+                )
                 return
+            logging.info(
+                "Setting ichbin_message_timestamp for user %s to %s",
+                event.user_chat_id,
+                event.recv_timestamp,
+            )
             user_profile.ichbin_message_timestamp = event.recv_timestamp
             await self._send_bot_reply(
                 user_profile,
@@ -289,6 +312,11 @@ class EventProcessor:
                 logging.info("Ignoring bot %r", user_profile.user_chat_id)
                 return
             if user_profile.ichbin_message_timestamp is not None:
+                logging.info(
+                    "Joined user %s already has ichbin message at timestamp %s",
+                    user_profile.user_chat_id,
+                    user_profile.ichbin_message_timestamp,
+                )
                 await self._send_bot_reply(
                     user_profile,
                     BotReplyType.WELCOME_AGAIN,
@@ -296,6 +324,10 @@ class EventProcessor:
                 )
                 return
             if user_profile.ichbin_request_timestamp is None:
+                logging.info(
+                    "User %s has no ichbin request timestamp, sending ichbin request",
+                    user_profile.user_chat_id,
+                )
                 bot_message = await self._send_bot_reply(
                     user_profile,
                     BotReplyType.ICHBIN_REQUEST,
@@ -315,6 +347,12 @@ class EventProcessor:
                 )
                 return
             time_left = kick_at_timestamp - event.recv_timestamp
+            logging.info(
+                "Time left for user %s to write ichbin: %s (boundary: %s)",
+                user_profile.user_chat_id,
+                time_left,
+                chat_settings.extra_ichbin_waiting_time_after_rejoining.total_seconds(),
+            )
             if (
                 time_left
                 > chat_settings.extra_ichbin_waiting_time_after_rejoining.total_seconds()
@@ -368,11 +406,14 @@ class EventProcessor:
             reply_type=bot_reply_type,
             sent_timestamp=sent_timestamp,
         )
+        logging.info("Sent message: %r", bot_api_message)
         self._bot_storage.add_bot_message(bot_api_message)
         return bot_api_message
 
     async def _on_bot_api_chat_member_left(self, event: BotApiChatMemberLeft) -> None:
+        logging.info("User %s left the chat", event.user_chat_id)
         if await self._is_me(event.user_chat_id.user_id):
+            logging.info("I left the chat %r", event.user_chat_id.chat_id)
             self._bot_storage.remove_chat(event.user_chat_id.chat_id)
         chat_settings = self._bot_storage.get_chat_settings(event.user_chat_id.chat_id)
         with self._open_user_profile(event.user_chat_id, chat_settings) as user_profile:
@@ -380,6 +421,8 @@ class EventProcessor:
 
     async def _on_periodic_event(self, event: PeriodicEvent) -> None:
         users_to_kick = self._bot_storage.get_users_to_kick(event.recv_timestamp)
+        if users_to_kick:
+            logging.info("Found users to kick: %r", users_to_kick)
         for user_chat_id in users_to_kick:
             try:
                 await self._verify_and_kick_user(user_chat_id, event.recv_timestamp)

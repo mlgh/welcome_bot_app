@@ -4,40 +4,6 @@ from welcome_bot_app.model.events import BaseEvent
 import aiogram
 from typing import Any
 import logging
-import json
-
-
-def _is_not_empty(v: Any) -> bool:
-    return v is not None and v != [] and v != {}
-
-
-def _jsonify(obj: Any, visited: set[int] | None = None) -> Any:
-    if visited is None:
-        visited = set()
-    if id(obj) in visited:
-        return "..."
-    try:
-        visited.add(id(obj))
-
-        if hasattr(obj, "to_dict"):
-            return {
-                k: _jsonify(v, visited)
-                for k, v in obj.to_dict().items()
-                if _is_not_empty(v)
-            }
-        elif isinstance(obj, dict):
-            return {k: _jsonify(v, visited) for k, v in obj.items() if _is_not_empty(v)}
-        elif isinstance(obj, list):
-            return [_jsonify(elem) for elem in obj]
-        else:
-            try:
-                json.dumps(obj)
-            except TypeError:
-                return repr(obj)
-            else:
-                return obj
-    finally:
-        visited.remove(id(obj))
 
 
 class EventLog:
@@ -87,20 +53,16 @@ class EventLog:
     ) -> None:
         try:
             event_type = "BOT_API/MSG"
-            event_data = event.model_dump_json(indent=2, exclude_none=True)
+            event_data = str(event)
             self.log_event(recv_timestamp, event_type, event_data)
         except Exception:
             logging.error("Failed to log raw Bot API event: %s", event, exc_info=True)
 
     def log_telethon_event(self, recv_timestamp: LocalUTCTimestamp, event: Any) -> None:
         try:
-            jsonified = _jsonify(event)
-            if "_" in jsonified:
-                event_name = jsonified["_"]
-            else:
-                event_name = type(event).__name__
+            event_name = type(event).__name__
             event_type = "TELETHON/" + event_name
-            event_data = json.dumps(jsonified, indent=2)
+            event_data = str(event)
             self.log_event(recv_timestamp, event_type, event_data)
         except Exception:
             logging.error("Failed to log raw Telethon event: %s", event, exc_info=True)
