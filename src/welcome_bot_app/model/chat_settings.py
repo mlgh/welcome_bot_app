@@ -85,3 +85,5 @@ class ChatSettings(BaseModel):
     # If the user joined the chat 1 month ago, then rejoined it today, we should not kick him, instead we should give him some grace time to write the ichbin message.
     extra_ichbin_waiting_time_after_rejoining: timedelta = timedelta(hours=1)
     dark_launch_sink_chat_id: ChatId | None = None
+    # How long to wait after an unsuccessful kick before trying again.
+    failed_kick_retry_time: timedelta = timedelta(hours=1)

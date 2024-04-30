@@ -11,6 +11,9 @@ class UserProfileParams(BaseModel):
     # How long to wait for an #ichbin message before kicking the user.
     ichbin_waiting_time: timedelta
 
+    # How long to wait after an unsuccessful kick before trying again.
+    failed_kick_retry_time: timedelta
+
 
 class BotApiMessage(BaseModel):
     # User + chat who sent this message
@@ -28,10 +31,12 @@ class PresenceInfo(BaseModel):
     joined_timestamp: LocalUTCTimestamp | None = None
     # Timestamp when the user was kicked.
     kick_timestamp: LocalUTCTimestamp | None = None
-    # Timestampt when the user left.
+    # Timestamp when the user left.
     left_timestamp: LocalUTCTimestamp | None = None
     # Treat as if the user has left.
     treat_as_left: bool = False
+    # Timestamp when we last failed to kick the user.
+    failed_kick_timestamp: LocalUTCTimestamp | None = None
 
     def is_present(self) -> bool:
         if self.treat_as_left:
@@ -72,6 +77,9 @@ class UserProfile(BaseModel):
         if is_dark_launch:
             self.presence_info.treat_as_left = True
 
+    def on_failed_to_kick(self, kick_timestamp: LocalUTCTimestamp) -> None:
+        self.presence_info.failed_kick_timestamp = kick_timestamp
+
     def first_name(self) -> str | None:
         return (
             self.basic_user_info.first_name
@@ -102,8 +110,15 @@ class UserProfile(BaseModel):
             return None
         if self.ichbin_request_timestamp is None:
             return None
-        return LocalUTCTimestamp(
+        result = (
             self.ichbin_request_timestamp
             + user_profile_params.ichbin_waiting_time.total_seconds()
             + self.extra_grace_time
         )
+        if self.presence_info.failed_kick_timestamp is not None:
+            result = max(
+                result,
+                self.presence_info.failed_kick_timestamp
+                + user_profile_params.failed_kick_retry_time.total_seconds(),
+            )
+        return LocalUTCTimestamp(result)

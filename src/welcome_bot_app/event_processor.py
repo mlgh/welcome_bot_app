@@ -2,6 +2,7 @@ import asyncio
 import difflib
 import logging
 import time
+import html
 from collections import defaultdict
 from typing import DefaultDict, Iterable, Iterator, List, Optional
 import aiogram
@@ -81,13 +82,19 @@ def open_user_profile(
     chat_settings: ChatSettings,
 ) -> Iterator[UserProfile]:
     user_profile = bot_storage.get_profile(user_chat_id)
+    user_profile_params = UserProfileParams(
+        ichbin_waiting_time=chat_settings.ichbin_waiting_time,
+        failed_kick_retry_time=chat_settings.failed_kick_retry_time,
+    )
     original_json = user_profile.model_dump_json()
     pretty_original_json = user_profile.model_dump_json(indent=2)
+    previous_kick_at_timestamp = user_profile.get_kick_at_timestamp(user_profile_params)
     yield user_profile
     modified_json = user_profile.model_dump_json()
     if original_json == modified_json:
         return
     pretty_modified_json = user_profile.model_dump_json(indent=2)
+    modified_kick_at_timestamp = user_profile.get_kick_at_timestamp(user_profile_params)
     diff = list(
         difflib.unified_diff(
             pretty_original_json.splitlines(), pretty_modified_json.splitlines(), n=0
@@ -98,10 +105,13 @@ def open_user_profile(
     for line in diff[2:]:
         if line.startswith("-") or line.startswith("+"):
             logging.info("Diff: %s: %s", user_chat_id, line)
-    bot_storage.save_profile(
-        user_profile,
-        UserProfileParams(ichbin_waiting_time=chat_settings.ichbin_waiting_time),
-    )
+    if previous_kick_at_timestamp != modified_kick_at_timestamp:
+        logging.info(
+            "Diff: %s: kick_at_timestamp changed from %r to %r",
+            previous_kick_at_timestamp,
+            modified_kick_at_timestamp,
+        )
+    bot_storage.save_profile(user_profile, user_profile_params)
 
 
 class EventProcessor:
@@ -246,20 +256,22 @@ class EventProcessor:
             response_text = "Failed to execute command. Traceback is in the logs."
             await self._bot.send_message(
                 chat_id=event.user_chat_id.chat_id,
-                text=response_text,
+                text=html.escape(response_text),
                 reply_parameters=aiogram.types.ReplyParameters(
                     message_id=event.message_id, chat_id=event.user_chat_id.chat_id
                 ),
+                parse_mode=ParseMode.HTML,
             )
         else:
             if response_message is None:
                 response_message = "Command executed successfully."
             await self._bot.send_message(
                 chat_id=event.user_chat_id.chat_id,
-                text=response_message,
+                text=html.escape(response_message),
                 reply_parameters=aiogram.types.ReplyParameters(
                     message_id=event.message_id, chat_id=event.user_chat_id.chat_id
                 ),
+                parse_mode=ParseMode.HTML,
             )
 
     def _is_admin(self, user_id: UserId) -> bool:
@@ -339,7 +351,10 @@ class EventProcessor:
                 event.user_chat_id.chat_id
             )
             kick_at_timestamp = user_profile.get_kick_at_timestamp(
-                UserProfileParams(ichbin_waiting_time=chat_settings.ichbin_waiting_time)
+                UserProfileParams(
+                    ichbin_waiting_time=chat_settings.ichbin_waiting_time,
+                    failed_kick_retry_time=chat_settings.failed_kick_retry_time,
+                )
             )
             if kick_at_timestamp is None:
                 logging.warning(
@@ -535,7 +550,10 @@ class EventProcessor:
         chat_settings = self._bot_storage.get_chat_settings(user_chat_id.chat_id)
         with self._open_user_profile(user_chat_id, chat_settings) as user_profile:
             kick_at_timestamp = user_profile.get_kick_at_timestamp(
-                UserProfileParams(ichbin_waiting_time=chat_settings.ichbin_waiting_time)
+                UserProfileParams(
+                    ichbin_waiting_time=chat_settings.ichbin_waiting_time,
+                    failed_kick_retry_time=chat_settings.failed_kick_retry_time,
+                )
             )
             if kick_at_timestamp is None:
                 logging.warning(
@@ -553,14 +571,21 @@ class EventProcessor:
                 return
             if chat_settings.dark_launch_sink_chat_id is None:
                 logging.info("Kicking user %r", user_chat_id)
-                await self._bot.ban_chat_member(
-                    chat_id=user_chat_id.chat_id,
-                    user_id=user_chat_id.user_id,
-                    until_date=chat_settings.ban_duration,
-                )
-                user_profile.on_kicked(
-                    kick_timestamp=current_timestamp, is_dark_launch=False
-                )
+                try:
+                    await self._bot.ban_chat_member(
+                        chat_id=user_chat_id.chat_id,
+                        user_id=user_chat_id.user_id,
+                        until_date=chat_settings.ban_duration,
+                    )
+                except Exception:
+                    logging.error("Failed to kick user %s", user_chat_id, exc_info=True)
+                    user_profile.on_failed_to_kick(kick_timestamp=current_timestamp)
+                    return
+                else:
+                    logging.info("Successfully kicked user %s", user_chat_id)
+                    user_profile.on_kicked(
+                        kick_timestamp=current_timestamp, is_dark_launch=False
+                    )
             else:
                 logging.info(
                     "Would have kicked user %r, but dark launch is enabled.",
