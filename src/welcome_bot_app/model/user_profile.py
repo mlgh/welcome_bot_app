@@ -66,6 +66,10 @@ class PresenceInfo(BaseModel):
             return False
         if self.left_timestamp is not None:
             return False
+        # XXX: When the bot kicks the user, it sometimes doesn't get the "user left chat" message
+        # from Telegram Bot API. We shouldn't try kicking the user again and treat them as if they've left the chat.
+        if self.kick_timestamp is not None:
+            return False
         return True
 
 
