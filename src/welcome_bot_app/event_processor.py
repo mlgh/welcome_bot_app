@@ -7,6 +7,7 @@ import html
 from collections import defaultdict
 from typing import DefaultDict, Iterable, Iterator, List, Optional
 import aiogram
+import aiogram.exceptions
 from pydantic import BaseModel
 import telethon
 import contextlib
@@ -650,20 +651,29 @@ class EventProcessor:
         chat_settings: ChatSettings,
     ) -> None:
         try:
-            if chat_settings.dark_launch_sink_chat_id is None:
-                logging.info("Trying to delete message %r", message)
-                await self._bot.delete_message(
-                    chat_id=message.user_chat_id.chat_id, message_id=message.message_id
-                )
-            else:
-                logging.info(
-                    "Deleting message %r in dark launch chat %r",
+            try:
+                if chat_settings.dark_launch_sink_chat_id is None:
+                    logging.info("Trying to delete message %r", message)
+                    await self._bot.delete_message(
+                        chat_id=message.user_chat_id.chat_id,
+                        message_id=message.message_id,
+                    )
+                else:
+                    logging.info(
+                        "Deleting message %r in dark launch chat %r",
+                        message,
+                        chat_settings.dark_launch_sink_chat_id,
+                    )
+                    await self._bot.delete_message(
+                        chat_id=chat_settings.dark_launch_sink_chat_id,
+                        message_id=message.message_id,
+                    )
+            except aiogram.exceptions.TelegramBadRequest:
+                # TODO: Add support for deleting messages that are older than 48 hours.
+                logging.error(
+                    "Failed to delete message %r, due to possibly unretriable error",
                     message,
-                    chat_settings.dark_launch_sink_chat_id,
-                )
-                await self._bot.delete_message(
-                    chat_id=chat_settings.dark_launch_sink_chat_id,
-                    message_id=message.message_id,
+                    exc_info=True,
                 )
             self._bot_storage.mark_bot_message_as_deleted(
                 message.user_chat_id,
