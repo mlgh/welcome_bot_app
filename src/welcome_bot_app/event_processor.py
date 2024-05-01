@@ -290,6 +290,8 @@ class EventProcessor:
             logging.info("Got a command-like message from admin: %r", event)
             await self._on_admin_message(event)
             return
+        # We process #ichbin messages even if the bot is disabled in the chat.
+        # TODO: Update this behavior if it's not desired.
         with self._open_user_profile(event.user_chat_id, chat_settings) as user_profile:
             user_profile.basic_user_info = event.basic_user_info
             if "#ichbin" not in event.text:
@@ -317,6 +319,13 @@ class EventProcessor:
     async def _on_bot_api_new_chat_member(self, event: BotApiChatMemberJoined) -> None:
         self._bot_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
         chat_settings = self._bot_storage.get_chat_settings(event.user_chat_id.chat_id)
+        if not chat_settings.ichbin_enabled:
+            logging.info(
+                "Chat %s has #ichbin disabled, ignoring new member %r.",
+                event.user_chat_id.chat_id,
+                event.user_chat_id,
+            )
+            return
         with self._open_user_profile(event.user_chat_id, chat_settings) as user_profile:
             user_profile.basic_user_info = event.basic_user_info
             user_profile.on_joined(event.recv_timestamp)
@@ -549,6 +558,14 @@ class EventProcessor:
         logging.info("Attempting to kick user %r", user_chat_id)
         chat_settings = self._bot_storage.get_chat_settings(user_chat_id.chat_id)
         with self._open_user_profile(user_chat_id, chat_settings) as user_profile:
+            if not chat_settings.ichbin_enabled:
+                logging.info(
+                    "Chat %s has #ichbin disabled, user %r is forgiven.",
+                    user_chat_id.chat_id,
+                    user_chat_id,
+                )
+                user_profile.forgiven_timestamp = current_timestamp
+                return
             kick_at_timestamp = user_profile.get_kick_at_timestamp(
                 UserProfileParams(
                     ichbin_waiting_time=chat_settings.ichbin_waiting_time,

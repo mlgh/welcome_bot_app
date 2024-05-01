@@ -74,6 +74,8 @@ class BotReplies(BaseModel):
 
 
 class ChatSettings(BaseModel):
+    # Whether the #ichbin feature is enabled in this chat.
+    ichbin_enabled: bool = False
     bot_replies: BotReplies = BotReplies()
     # $TAG that must be sent in the introduction message by the user.
     introduction_tag: str = INTRODUCTION_TAG

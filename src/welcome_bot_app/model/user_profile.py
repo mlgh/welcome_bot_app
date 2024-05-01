@@ -64,6 +64,9 @@ class UserProfile(BaseModel):
 
     ichbin_message_timestamp: LocalUTCTimestamp | None = None
 
+    # This user had to be kicked when the bot was disabled, therefore it was forgiven at the given timestamp.
+    forgiven_timestamp: LocalUTCTimestamp | None = None
+
     def on_joined(self, joined_timestamp: LocalUTCTimestamp) -> None:
         self.presence_info = PresenceInfo(joined_timestamp=joined_timestamp)
 
@@ -96,6 +99,7 @@ class UserProfile(BaseModel):
         return (
             self.ichbin_request_timestamp is not None
             and self.ichbin_message_timestamp is None
+            and self.forgiven_timestamp is None
         )
 
     def add_extra_grace_time(self, extra_grace_time: float) -> None:
@@ -106,10 +110,10 @@ class UserProfile(BaseModel):
     ) -> LocalUTCTimestamp | None:
         if not self.presence_info.is_present():
             return None
-        if self.ichbin_message_timestamp is not None:
+        if not self.is_waiting_for_ichbin_message():
             return None
-        if self.ichbin_request_timestamp is None:
-            return None
+        # Invariant enforced by self.is_waiting_for_ichbin_message()
+        assert self.ichbin_request_timestamp is not None
         result = (
             self.ichbin_request_timestamp
             + user_profile_params.ichbin_waiting_time.total_seconds()
