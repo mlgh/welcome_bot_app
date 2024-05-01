@@ -23,6 +23,7 @@ from welcome_bot_app.model.user_profile import (
     BotApiMessage,
     UserProfile,
     UserProfileParams,
+    UserChatCapabilities,
 )
 from welcome_bot_app.safe_html import (
     escape_html,
@@ -115,6 +116,12 @@ def open_user_profile(
     bot_storage.save_profile(user_profile, user_profile_params)
 
 
+class MissingCapabilities(Exception):
+    """Raised when user tries to run a bot command without necessary capabilities."""
+
+    pass
+
+
 class EventProcessor:
     class Config(BaseModel):
         # How often should we check for periodic stuff, like users to kick,
@@ -205,12 +212,17 @@ class EventProcessor:
         else:
             logging.critical("BUG: Unknown event: %s, skipping.", event)
 
+    def _get_capabilities(
+        self, user_id: UserId, chat_id: ChatId
+    ) -> UserChatCapabilities:
+        if user_id == self._config.root_admin_user_id:
+            return UserChatCapabilities.root_capabilities()
+        return self._bot_storage.get_user_chat_capabilities(user_id, chat_id)
+
     async def _on_admin_message(self, event: BotApiNewTextMessage) -> None:
+        cmd_user_id = event.user_chat_id.user_id
         text = event.text
         command, _, rest = text.partition(" ")
-        # TODO: Only execute command if it's actually targeted to the bot.
-        if not command.startswith("/lancet_"):
-            return
         response_message: str | None = None
         try:
             # TODO: Add easier settings handling.
@@ -219,6 +231,14 @@ class EventProcessor:
             if command == self._config.chat_cmd_prefix + "message":
                 destination_chat_id_str, _, message = rest.partition(" ")
                 destination_chat_id = ChatId(int(destination_chat_id_str))
+                capabilities = self._bot_storage.get_user_chat_capabilities(
+                    cmd_user_id, destination_chat_id
+                )
+                if not capabilities.can_send_messages_from_bot:
+                    raise MissingCapabilities(
+                        "User %s isn't allowed to send messages to chat %s from bot's name."
+                        % (cmd_user_id, destination_chat_id)
+                    )
                 logging.info(
                     "Sending message %r to chat %r", message, destination_chat_id
                 )
@@ -228,6 +248,11 @@ class EventProcessor:
                 chats = self._bot_storage.get_chats()
                 chat_lines = []
                 for chat_id, chat_info in chats.items():
+                    # Don't show chats which the user can't edit.
+                    if not self._get_capabilities(
+                        cmd_user_id, chat_id
+                    ).can_update_settings:
+                        continue
                     chat_settings = self._bot_storage.get_chat_settings(chat_id)
                     is_enabled = (
                         "**ENABLED**"
@@ -235,21 +260,39 @@ class EventProcessor:
                         else "**DISABLED**"
                     )
                     chat_lines.append(f"{chat_id}: {is_enabled} {chat_info!r}")
-                response_message = "Chats:\n" + "\n".join(chat_lines)
+                if not chat_lines:
+                    response_message = "No chats to show."
+                else:
+                    response_message = "Chats:\n" + "\n".join(chat_lines)
             elif command == self._config.chat_cmd_prefix + "get_settings":
                 chat_id_str, _, _ = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
+                if not self._get_capabilities(cmd_user_id, chat_id).can_update_settings:
+                    raise MissingCapabilities(
+                        "User %s isn't allowed to view settings for chat %s."
+                        % (cmd_user_id, chat_id)
+                    )
                 chat_settings = self._bot_storage.get_chat_settings(chat_id)
                 response_message = f"Settings for chat {chat_id}:\n{chat_settings.model_dump_json(indent=2)}"
             elif command == self._config.chat_cmd_prefix + "set_settings":
                 chat_id_str, _, rest = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
+                if not self._get_capabilities(cmd_user_id, chat_id).can_update_settings:
+                    raise MissingCapabilities(
+                        "User %s isn't allowed to update settings for chat %s."
+                        % (cmd_user_id, chat_id)
+                    )
                 chat_settings = ChatSettings.model_validate_json(rest)
                 self._bot_storage.set_chat_settings(chat_id, chat_settings)
                 response_message = f"Settings for chat {chat_id} updated."
             elif command == self._config.chat_cmd_prefix + "set_message":
                 chat_id_str, _, rest = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
+                if not self._get_capabilities(cmd_user_id, chat_id).can_update_settings:
+                    raise MissingCapabilities(
+                        "User %s isn't allowed to update messages for chat %s."
+                        % (cmd_user_id, chat_id)
+                    )
                 bot_reply_type_str, _, message_template = rest.partition(" ")
                 bot_reply_type = BotReplyType(bot_reply_type_str)
                 chat_settings = self._bot_storage.get_chat_settings(chat_id)
@@ -261,6 +304,11 @@ class EventProcessor:
             elif command == self._config.chat_cmd_prefix + "chat_enable":
                 chat_id_str, _, rest = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
+                if not self._get_capabilities(cmd_user_id, chat_id).can_update_settings:
+                    raise MissingCapabilities(
+                        "User %s isn't allowed to enable #ichbin for chat %s."
+                        % (cmd_user_id, chat_id)
+                    )
                 chat_settings = self._bot_storage.get_chat_settings(chat_id)
                 chat_settings.ichbin_enabled = True
                 self._bot_storage.set_chat_settings(chat_id, chat_settings)
@@ -268,48 +316,77 @@ class EventProcessor:
             elif command == self._config.chat_cmd_prefix + "chat_disable":
                 chat_id_str, _, rest = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
+                if not self._get_capabilities(cmd_user_id, chat_id).can_update_settings:
+                    raise MissingCapabilities(
+                        "User %s isn't allowed to disable #ichbin for chat %s."
+                        % (cmd_user_id, chat_id)
+                    )
                 chat_settings = self._bot_storage.get_chat_settings(chat_id)
                 chat_settings.ichbin_enabled = False
                 self._bot_storage.set_chat_settings(chat_id, chat_settings)
                 response_message = f"#ichbin feature disabled for chat {chat_id}."
+            elif command == self._config.chat_cmd_prefix + "set_caps":
+                user_id_str, _, rest = rest.partition(" ")
+                user_id = UserId(int(user_id_str))
+                chat_id_str, _, rest = rest.partition(" ")
+                chat_id = ChatId(int(chat_id_str))
+                if not self._get_capabilities(
+                    cmd_user_id, chat_id
+                ).can_update_capabilities:
+                    raise MissingCapabilities(
+                        "User %s isn't allowed to set capabilities in chat %s."
+                        % (cmd_user_id, chat_id)
+                    )
+                capabilities = UserChatCapabilities.model_validate_json(rest)
+                if cmd_user_id == user_id and capabilities.can_update_capabilities:
+                    response_message = 'You are trying to set "can_update_capabilities" to False for yourself. This is not allowed.'
+                else:
+                    self._bot_storage.set_user_chat_capabilities(
+                        user_id, chat_id, capabilities
+                    )
+            elif command == self._config.chat_cmd_prefix + "get_caps":
+                user_id_str, _, rest = rest.partition(" ")
+                user_id = UserId(int(user_id_str))
+                chat_id_str, _, _ = rest.partition(" ")
+                chat_id = ChatId(int(chat_id_str))
+                if not self._get_capabilities(
+                    cmd_user_id, chat_id
+                ).can_update_capabilities:
+                    raise MissingCapabilities(
+                        "User %s isn't allowed to view capabilities in chat %s."
+                        % (cmd_user_id, chat_id)
+                    )
+                capabilities = self._get_capabilities(user_id, chat_id)
+                response_message = f"Capabilities for user {user_id} in chat {chat_id}:\n{capabilities.model_dump_json(indent=2)}"
             else:
                 raise ValueError(f"Unknown command: {command}")
+        except MissingCapabilities as exc:
+            logging.warning(
+                "User %r tried to run command %r without necessary capabilities: %r",
+                cmd_user_id,
+                text,
+                exc,
+            )
+            response_message = "You don't have enough capabilities to run this command."
         except Exception:
             logging.error("Failed to execute admin command: %s", text, exc_info=True)
-            response_text = "Failed to execute command. Traceback is in the logs."
-            await self._bot.send_message(
-                chat_id=event.user_chat_id.chat_id,
-                text=html.escape(response_text),
-                reply_parameters=aiogram.types.ReplyParameters(
-                    message_id=event.message_id, chat_id=event.user_chat_id.chat_id
-                ),
-                parse_mode=ParseMode.HTML,
-            )
-        else:
-            if response_message is None:
-                response_message = "Command executed successfully."
-            await self._bot.send_message(
-                chat_id=event.user_chat_id.chat_id,
-                text=html.escape(response_message),
-                reply_parameters=aiogram.types.ReplyParameters(
-                    message_id=event.message_id, chat_id=event.user_chat_id.chat_id
-                ),
-                parse_mode=ParseMode.HTML,
-            )
-
-    def _is_admin(self, user_id: UserId) -> bool:
-        if user_id == self._config.root_admin_user_id:
-            return True
-        # TODO: Add ability to set chat-specific admins.
-        return False
+            response_message = "Failed to execute command. Traceback is in the logs."
+        if response_message is None:
+            response_message = "Command executed successfully."
+        await self._bot.send_message(
+            chat_id=event.user_chat_id.chat_id,
+            text=html.escape(response_message),
+            reply_parameters=aiogram.types.ReplyParameters(
+                message_id=event.message_id, chat_id=event.user_chat_id.chat_id
+            ),
+            parse_mode=ParseMode.HTML,
+        )
 
     async def _on_bot_api_new_text_message(self, event: BotApiNewTextMessage) -> None:
         self._bot_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
 
         chat_settings = self._bot_storage.get_chat_settings(event.user_chat_id.chat_id)
-        if event.text.startswith(self._config.chat_cmd_prefix) and self._is_admin(
-            event.user_chat_id.user_id
-        ):
+        if event.text.startswith(self._config.chat_cmd_prefix):
             logging.info("Got a command-like message from admin: %r", event)
             await self._on_admin_message(event)
             return

@@ -10,6 +10,7 @@ from welcome_bot_app.model.user_profile import (
     PresenceInfo,
     UserProfile,
     UserProfileParams,
+    UserChatCapabilities,
 )
 from welcome_bot_app.model import (
     BotApiMessageId,
@@ -91,6 +92,13 @@ class BotStorage:
             sa.Column("chat_id", sa.Integer, primary_key=True, nullable=False),
             sa.Column("chat_settings", sa.Text, nullable=False),
         )
+        self._user_chat_capabilities = sa.Table(
+            "UserChatCapabilities",
+            self._sa_metadata,
+            sa.Column("user_id", sa.Integer, primary_key=True, nullable=False),
+            sa.Column("chat_id", sa.Integer, primary_key=True, nullable=False),
+            sa.Column("capabilities_json", sa.Text, nullable=False),
+        )
         self._sa_metadata.create_all(self._engine)
 
     def _set_conn_pragmas(self, dbapi_con: sqlite3.Connection, con_record: Any) -> None:
@@ -125,8 +133,6 @@ class BotStorage:
                 self._bot_chats.delete().where(self._bot_chats.c.chat_id == chat_id)
             )
             conn.commit()
-
-    # Convert what's below to sqlite
 
     def get_chat_settings(self, chat_id: ChatId) -> ChatSettings:
         with self._engine.connect() as conn:
@@ -259,6 +265,46 @@ class BotStorage:
                         user_profile_json=insert_stmt.excluded.user_profile_json,
                         kick_at_timestamp=insert_stmt.excluded.kick_at_timestamp,
                     ),
+                ),
+            )
+            conn.commit()
+
+    def get_user_chat_capabilities(
+        self, user_id: UserId, chat_id: ChatId
+    ) -> UserChatCapabilities:
+        with self._engine.connect() as conn:
+            result = conn.execute(
+                self._user_chat_capabilities.select().where(
+                    sa.and_(
+                        self._user_chat_capabilities.c.user_id == user_id,
+                        self._user_chat_capabilities.c.chat_id == chat_id,
+                    )
+                )
+            )
+            row = result.fetchone()
+            if row is None:
+                return UserChatCapabilities()
+            return UserChatCapabilities.model_validate_json(row.capabilities_json)
+
+    def set_user_chat_capabilities(
+        self,
+        user_id: UserId,
+        chat_id: ChatId,
+        UserChatCapabilities: UserChatCapabilities,
+    ) -> None:
+        with self._engine.connect() as conn:
+            insert_stmt = sqlite_insert(self._user_chat_capabilities).values(
+                user_id=user_id,
+                chat_id=chat_id,
+                capabilities_json=UserChatCapabilities.model_dump_json(indent=2),
+            )
+            conn.execute(
+                insert_stmt.on_conflict_do_update(
+                    index_elements=[
+                        self._user_chat_capabilities.c.user_id,
+                        self._user_chat_capabilities.c.chat_id,
+                    ],
+                    set_=dict(capabilities_json=insert_stmt.excluded.capabilities_json),
                 ),
             )
             conn.commit()

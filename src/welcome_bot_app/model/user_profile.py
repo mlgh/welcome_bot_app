@@ -5,6 +5,25 @@ from welcome_bot_app.model.chat_settings import BotReplyType
 from welcome_bot_app.model.events import BasicUserInfo
 
 
+class UserChatCapabilities(BaseModel):
+    # Whether user could modify capabilities of other users. This is a dangerous capability: the user could potentially strip themself of all capabilities.
+    can_update_capabilities: bool = False
+    # Whether the user could update chat settings.
+    can_update_settings: bool = False
+    # Whether the user could send messages from the bot's name.
+    can_send_messages_from_bot: bool = False
+
+    @classmethod
+    def root_capabilities(cls) -> "UserChatCapabilities":
+        instance = cls()
+        # Set all fields starting with "can_" to True
+        # XXX: This is a bit hacky.
+        for field in cls.model_fields.keys():
+            if field.startswith("can_"):
+                setattr(instance, field, True)
+        return instance
+
+
 class UserProfileParams(BaseModel):
     """Parameters for computing fields of the user profile."""
 
