@@ -108,6 +108,7 @@ def open_user_profile(
     if previous_kick_at_timestamp != modified_kick_at_timestamp:
         logging.info(
             "Diff: %s: kick_at_timestamp changed from %r to %r",
+            user_chat_id,
             previous_kick_at_timestamp,
             modified_kick_at_timestamp,
         )
@@ -213,6 +214,7 @@ class EventProcessor:
         response_message: str | None = None
         try:
             # TODO: Add easier settings handling.
+            # TODO: Make this readable and easy to extend.
             if command == self._config.chat_cmd_prefix + "message":
                 destination_chat_id_str, _, message = rest.partition(" ")
                 destination_chat_id = ChatId(int(destination_chat_id_str))
@@ -249,6 +251,20 @@ class EventProcessor:
                 ).template = safe_html_str(message_template)
                 self._bot_storage.set_chat_settings(chat_id, chat_settings)
                 response_message = f"Message template for reply type {bot_reply_type.value} is set to:\n{message_template}"
+            elif command == self._config.chat_cmd_prefix + "chat_enable":
+                chat_id_str, _, rest = rest.partition(" ")
+                chat_id = ChatId(int(chat_id_str))
+                chat_settings = self._bot_storage.get_chat_settings(chat_id)
+                chat_settings.ichbin_enabled = True
+                self._bot_storage.set_chat_settings(chat_id, chat_settings)
+                response_message = f"#ichbin feature enabled for chat {chat_id}."
+            elif command == self._config.chat_cmd_prefix + "chat_disable":
+                chat_id_str, _, rest = rest.partition(" ")
+                chat_id = ChatId(int(chat_id_str))
+                chat_settings = self._bot_storage.get_chat_settings(chat_id)
+                chat_settings.ichbin_enabled = False
+                self._bot_storage.set_chat_settings(chat_id, chat_settings)
+                response_message = f"#ichbin feature disabled for chat {chat_id}."
             else:
                 raise ValueError(f"Unknown command: {command}")
         except Exception:

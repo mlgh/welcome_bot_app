@@ -137,7 +137,7 @@ class BotStorage:
             )
             row = result.fetchone()
             if row is None:
-                return ChatSettings()
+                return ChatSettings.get_default()
             return ChatSettings.model_validate_json(row.chat_settings)
 
     def set_chat_settings(self, chat_id: ChatId, chat_settings: ChatSettings) -> None:

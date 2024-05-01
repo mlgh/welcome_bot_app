@@ -1,9 +1,9 @@
 import asyncio
 import logging
-import argparse
 import signal
 from aiogram import Bot
 from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
@@ -12,78 +12,78 @@ from welcome_bot_app import telethon_loop
 from welcome_bot_app.event_processor import EventProcessor
 from welcome_bot_app.event_queue import SqliteEventQueue
 from welcome_bot_app.bot_storage import BotStorage
+from welcome_bot_app import args
+
+args.parser().add_argument(
+    "--log-level",
+    help="Set the logging level.",
+    choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    default="INFO",
+)
+args.parser().add_argument(
+    "--bot-token-file",
+    help="Path to the file containing the bot token",
+    required=True,
+)
+args.parser().add_argument(
+    "--telethon-api-id-file", help="File with API ID for Telethon"
+)
+args.parser().add_argument(
+    "--telethon-api-hash-file",
+    help="File with API Hash for Telethon",
+)
+args.parser().add_argument(
+    "--telethon-session-file",
+    help="File with session string for Telethon",
+)
+args.parser().add_argument(
+    "--event-queue-file", help="Path to the event queue file", required=True
+)
+args.parser().add_argument(
+    "--event-log-file", help="Path to the event log file", required=True
+)
+args.parser().add_argument(
+    "--storage-url",
+    help="SqlAlchemy URL where data about users, chats will be stored.",
+    required=True,
+)
+args.parser().add_argument(
+    "--log-sql", help="Enable SqlAlchemy commands.", action="store_true"
+)
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="Welcoming Telegram bot.")
-    parser.add_argument(
-        "--log-level",
-        help="Set the logging level.",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
-    )
-    parser.add_argument(
-        "--bot-token-file",
-        help="Path to the file containing the bot token",
-        required=True,
-    )
-    parser.add_argument("--telethon-api-id-file", help="File with API ID for Telethon")
-    parser.add_argument(
-        "--telethon-api-hash-file",
-        help="File with API Hash for Telethon",
-    )
-    parser.add_argument(
-        "--telethon-session-file",
-        help="File with session string for Telethon",
-    )
-    parser.add_argument(
-        "--event-queue-file", help="Path to the event queue file", required=True
-    )
-    parser.add_argument(
-        "--event-log-file", help="Path to the event log file", required=True
-    )
-    parser.add_argument(
-        "--storage-url",
-        help="SqlAlchemy URL where data about users, chats will be stored.",
-        required=True,
-    )
-    parser.add_argument(
-        "--log-sql", help="Enable SqlAlchemy commands.", action="store_true"
-    )
-
-    args = parser.parse_args()
-
     logging.basicConfig(
-        level=getattr(logging, args.log_level),
+        level=getattr(logging, args.args().log_level),
         format="%(asctime)s - %(name)s:%(lineno)s %(levelname)s - %(message)s",
     )
     logging.info("Starting bot")
 
-    with open(args.bot_token_file, "r") as f:
+    with open(args.args().bot_token_file, "r") as f:
         bot_token = f.read().strip()
-    bot = Bot(bot_token, parse_mode=ParseMode.HTML)
+    bot = Bot(bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
     telethon_client = None
     if (
-        args.telethon_api_id_file
-        or args.telethon_api_hash_file
-        or args.telethon_session_file
+        args.args().telethon_api_id_file
+        or args.args().telethon_api_hash_file
+        or args.args().telethon_session_file
     ):
-        with open(args.telethon_api_id_file, "r") as f:
+        with open(args.args().telethon_api_id_file, "r") as f:
             telethon_api_id = int(f.read().strip())
-        with open(args.telethon_api_hash_file, "r") as f:
+        with open(args.args().telethon_api_hash_file, "r") as f:
             telethon_api_hash = f.read().strip()
-        with open(args.telethon_session_file, "r") as f:
+        with open(args.args().telethon_session_file, "r") as f:
             telethon_session_str = f.read().strip()
         telethon_client = TelegramClient(
             StringSession(telethon_session_str), telethon_api_id, telethon_api_hash
         )
 
     event_queue = SqliteEventQueue(
-        db_path=args.event_queue_file, options=SqliteEventQueue.Options()
+        db_path=args.args().event_queue_file, options=SqliteEventQueue.Options()
     )
-    event_log = bot_api_loop.EventLog(args.event_log_file)
-    bot_storage = BotStorage(args.storage_url, enable_echo=args.log_sql)
+    event_log = bot_api_loop.EventLog(args.args().event_log_file)
+    bot_storage = BotStorage(args.args().storage_url, enable_echo=args.args().log_sql)
     event_processor = EventProcessor(
         EventProcessor.Config(),
         bot,

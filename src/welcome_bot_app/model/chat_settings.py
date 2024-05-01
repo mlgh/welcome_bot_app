@@ -5,6 +5,13 @@ from welcome_bot_app.model import ChatId
 from datetime import timedelta
 
 from welcome_bot_app.safe_html import safe_html_str
+from welcome_bot_app import args
+
+args.parser().add_argument(
+    "--default-chat-settings-json",
+    help="Default chat settings in JSON format.",
+    type=str,
+)
 
 ICHBIN_REQUEST_HTML = """Hello, $USER!"""
 
@@ -89,3 +96,11 @@ class ChatSettings(BaseModel):
     dark_launch_sink_chat_id: ChatId | None = None
     # How long to wait after an unsuccessful kick before trying again.
     failed_kick_retry_time: timedelta = timedelta(hours=1)
+
+    @classmethod
+    def get_default(cls) -> "ChatSettings":
+        default_chat_settings_json = args.args().default_chat_settings_json
+        if default_chat_settings_json is None:
+            return ChatSettings()
+        else:
+            return ChatSettings.model_validate_json(default_chat_settings_json)
