@@ -392,19 +392,33 @@ class EventProcessor:
                     response_message += (
                         "\n\n" + "Traceback was sent to you in a private message."
                     )
-                    await self._bot.send_message(
-                        chat_id=event.user_chat_id.user_id,
-                        text=html.escape(traceback_message),
-                        parse_mode=ParseMode.HTML,
-                    )
-        await self._bot.send_message(
-            chat_id=event.user_chat_id.chat_id,
-            text=html.escape(response_message),
-            reply_parameters=aiogram.types.ReplyParameters(
-                message_id=event.message_id, chat_id=event.user_chat_id.chat_id
-            ),
-            parse_mode=ParseMode.HTML,
-        )
+                    try:
+                        await self._bot.send_message(
+                            chat_id=event.user_chat_id.user_id,
+                            text=html.escape(traceback_message),
+                            parse_mode=ParseMode.HTML,
+                        )
+                    except Exception:
+                        logging.error(
+                            "Failed to send traceback to user %r",
+                            event.user_chat_id.user_id,
+                            exc_info=True,
+                        )
+        try:
+            await self._bot.send_message(
+                chat_id=event.user_chat_id.chat_id,
+                text=html.escape(response_message),
+                reply_parameters=aiogram.types.ReplyParameters(
+                    message_id=event.message_id, chat_id=event.user_chat_id.chat_id
+                ),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            logging.error(
+                "Failed to send response message to chat %r",
+                event.user_chat_id.chat_id,
+                exc_info=True,
+            )
 
     async def _on_bot_api_new_text_message(self, event: BotApiNewTextMessage) -> None:
         self._bot_storage.add_chat(event.user_chat_id.chat_id, event.chat_info)
