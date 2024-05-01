@@ -12,6 +12,8 @@ class UserChatCapabilities(BaseModel):
     can_update_settings: bool = False
     # Whether the user could send messages from the bot's name.
     can_send_messages_from_bot: bool = False
+    # Whether the user could view tracebacks. This property is only read for private chats.
+    can_view_tracebacks: bool = False
 
     @classmethod
     def root_capabilities(cls) -> "UserChatCapabilities":

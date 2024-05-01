@@ -2,6 +2,7 @@ import asyncio
 import difflib
 import logging
 import time
+import traceback
 import html
 from collections import defaultdict
 from typing import DefaultDict, Iterable, Iterator, List, Optional
@@ -224,6 +225,7 @@ class EventProcessor:
         text = event.text
         command, _, rest = text.partition(" ")
         response_message: str | None = None
+        traceback_message: str | None = None
         try:
             # TODO: Add easier settings handling.
             # TODO: Make this readable and easy to extend.
@@ -368,11 +370,32 @@ class EventProcessor:
                 exc,
             )
             response_message = "You don't have enough capabilities to run this command."
+            traceback_message = traceback.format_exc()
         except Exception:
             logging.error("Failed to execute admin command: %s", text, exc_info=True)
-            response_message = "Failed to execute command. Traceback is in the logs."
+            response_message = "Failed to execute command."
+            traceback_message = traceback.format_exc()
         if response_message is None:
             response_message = "Command executed successfully."
+        if traceback_message is not None:
+            if not self._get_capabilities(
+                cmd_user_id, chat_id=ChatId(cmd_user_id)
+            ).can_view_tracebacks:
+                response_message += (
+                    "\n\n" + "Traceback is in the logs. Ask bot admin for more info."
+                )
+            else:
+                if event.chat_info.is_private():
+                    response_message += "\n\n" + traceback_message
+                else:
+                    response_message += (
+                        "\n\n" + "Traceback was sent to you in a private message."
+                    )
+                    await self._bot.send_message(
+                        chat_id=event.user_chat_id.user_id,
+                        text=html.escape(traceback_message),
+                        parse_mode=ParseMode.HTML,
+                    )
         await self._bot.send_message(
             chat_id=event.user_chat_id.chat_id,
             text=html.escape(response_message),
