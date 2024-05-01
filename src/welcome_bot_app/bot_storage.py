@@ -50,6 +50,10 @@ class BotStorage:
             unique=True,
         )
         sa.Index(
+            "idx_chat",
+            self._user_profiles.c.chat_id,
+        )
+        sa.Index(
             "idx_users_to_kick_soon",
             self._user_profiles.c.kick_at_timestamp.asc(),
             sqlite_where=(self._user_profiles.c.kick_at_timestamp.is_not(None)),
@@ -268,6 +272,17 @@ class BotStorage:
                 ),
             )
             conn.commit()
+
+    def get_chat_user_profiles(self, chat_id: ChatId) -> List[UserProfile]:
+        with self._engine.connect() as conn:
+            result = conn.execute(
+                self._user_profiles.select().where(
+                    self._user_profiles.c.chat_id == chat_id
+                )
+            )
+            return [
+                UserProfile.model_validate_json(row.user_profile_json) for row in result
+            ]
 
     def get_user_chat_capabilities(
         self, user_id: UserId, chat_id: ChatId

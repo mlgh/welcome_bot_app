@@ -225,7 +225,7 @@ class EventProcessor:
         cmd_user_id = event.user_chat_id.user_id
         text = event.text
         command, _, rest = text.partition(" ")
-        response_message: str | None = None
+        response_message: str | safe_html_str | None = None
         traceback_message: str | None = None
         try:
             # TODO: Add easier settings handling.
@@ -257,16 +257,18 @@ class EventProcessor:
                     ).can_update_settings:
                         continue
                     chat_settings = self._bot_storage.get_chat_settings(chat_id)
-                    is_enabled = (
-                        "**ENABLED**"
+                    is_enabled = safe_html_str(
+                        "<b>ENABLED</b>"
                         if chat_settings.ichbin_enabled
-                        else "**DISABLED**"
+                        else "<b>DISABLED</b>"
                     )
-                    chat_lines.append(f"{chat_id}: {is_enabled} {chat_info!r}")
+                    chat_lines.append(
+                        f"{chat_id}: {is_enabled} {escape_html(repr(chat_info))}"
+                    )
                 if not chat_lines:
                     response_message = "No chats to show."
                 else:
-                    response_message = "Chats:\n" + "\n".join(chat_lines)
+                    response_message = safe_html_str("Chats:\n" + "\n".join(chat_lines))
             elif command == self._config.chat_cmd_prefix + "get_settings":
                 chat_id_str, _, _ = rest.partition(" ")
                 chat_id = ChatId(int(chat_id_str))
@@ -361,6 +363,34 @@ class EventProcessor:
                     )
                 capabilities = self._get_capabilities(user_id, chat_id)
                 response_message = f"Capabilities for user {user_id} in chat {chat_id}:\n{capabilities.model_dump_json(indent=2)}"
+            elif command == self._config.chat_cmd_prefix + "get_kicked_users":
+                chat_id_str, _, _ = rest.partition(" ")
+                chat_id = ChatId(int(chat_id_str))
+                if not self._get_capabilities(
+                    cmd_user_id, chat_id
+                ).can_view_kicked_users:
+                    raise MissingCapabilities(
+                        "User %s isn't allowed to view kicked users in chat %s."
+                        % (cmd_user_id, chat_id)
+                    )
+                kicked_users_str: list[safe_html_str] = []
+                for user_profile in self._bot_storage.get_chat_user_profiles(chat_id):
+                    if not user_profile.is_kicked():
+                        continue
+                    # TODO: More info, like date when joined, when kicked, etc.
+                    kicked_users_str.append(
+                        _create_user_mention_html(
+                            user_profile.user_chat_id.user_id,
+                            user_profile.first_name(),
+                            user_profile.last_name(),
+                        )
+                    )
+                if not kicked_users_str:
+                    response_message = "No kicked users."
+                else:
+                    response_message = safe_html_str(
+                        "Kicked users:\n" + "\n".join(kicked_users_str)
+                    )
             else:
                 raise ValueError(f"Unknown command: {command}")
         except MissingCapabilities as exc:
@@ -407,7 +437,9 @@ class EventProcessor:
         try:
             await self._bot.send_message(
                 chat_id=event.user_chat_id.chat_id,
-                text=html.escape(response_message),
+                text=response_message
+                if isinstance(response_message, safe_html_str)
+                else html.escape(response_message),
                 reply_parameters=aiogram.types.ReplyParameters(
                     message_id=event.message_id, chat_id=event.user_chat_id.chat_id
                 ),

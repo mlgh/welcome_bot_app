@@ -14,6 +14,8 @@ class UserChatCapabilities(BaseModel):
     can_send_messages_from_bot: bool = False
     # Whether the user could view tracebacks. This property is only read for private chats.
     can_view_tracebacks: bool = False
+    # Whether the user could view kicked users.
+    can_view_kicked_users: bool = False
 
     @classmethod
     def root_capabilities(cls) -> "UserChatCapabilities":
@@ -126,6 +128,9 @@ class UserProfile(BaseModel):
             and self.ichbin_message_timestamp is None
             and self.forgiven_timestamp is None
         )
+
+    def is_kicked(self) -> bool:
+        return self.presence_info.kick_timestamp is not None
 
     def add_extra_grace_time(self, extra_grace_time: float) -> None:
         self.extra_grace_time += extra_grace_time
