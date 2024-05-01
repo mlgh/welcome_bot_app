@@ -215,6 +215,7 @@ class EventProcessor:
         try:
             # TODO: Add easier settings handling.
             # TODO: Make this readable and easy to extend.
+            # TODO: Add safe_html_str here, so that we could use HTML in messages.
             if command == self._config.chat_cmd_prefix + "message":
                 destination_chat_id_str, _, message = rest.partition(" ")
                 destination_chat_id = ChatId(int(destination_chat_id_str))
@@ -227,7 +228,13 @@ class EventProcessor:
                 chats = self._bot_storage.get_chats()
                 chat_lines = []
                 for chat_id, chat_info in chats.items():
-                    chat_lines.append(f"{chat_id}: {chat_info!r}")
+                    chat_settings = self._bot_storage.get_chat_settings(chat_id)
+                    is_enabled = (
+                        "**ENABLED**"
+                        if chat_settings.ichbin_enabled
+                        else "**DISABLED**"
+                    )
+                    chat_lines.append(f"{chat_id}: {is_enabled} {chat_info!r}")
                 response_message = "Chats:\n" + "\n".join(chat_lines)
             elif command == self._config.chat_cmd_prefix + "get_settings":
                 chat_id_str, _, _ = rest.partition(" ")
