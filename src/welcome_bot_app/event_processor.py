@@ -234,10 +234,9 @@ class EventProcessor:
             if command == self._config.chat_cmd_prefix + "message":
                 destination_chat_id_str, _, message = rest.partition(" ")
                 destination_chat_id = ChatId(int(destination_chat_id_str))
-                capabilities = self._bot_storage.get_user_chat_capabilities(
+                if not self._get_capabilities(
                     cmd_user_id, destination_chat_id
-                )
-                if not capabilities.can_send_messages_from_bot:
+                ).can_send_messages_from_bot:
                     raise MissingCapabilities(
                         "User %s isn't allowed to send messages to chat %s from bot's name."
                         % (cmd_user_id, destination_chat_id)
