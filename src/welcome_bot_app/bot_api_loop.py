@@ -1,5 +1,5 @@
 import aiogram.types
-from typing import Generator
+from typing import Generator, Optional
 from aiogram import Bot, Dispatcher
 import time
 import logging
@@ -23,6 +23,9 @@ from welcome_bot_app.event_log import EventLog
 def extract_bot_events(
     message: aiogram.types.Message, recv_timestamp: LocalUTCTimestamp, is_edited: bool
 ) -> Generator[BaseEvent, None, None]:
+    message_text: Optional[str] = message.text
+    if message_text is None:
+        message_text = message.caption
     if message.content_type == aiogram.types.ContentType.NEW_CHAT_MEMBERS:
         if message.new_chat_members is None:
             logging.error(
@@ -66,7 +69,9 @@ def extract_bot_events(
             ),
             chat_info=BotApiChatInfo.from_bot_api_chat(message.chat),
         )
-    elif message.text is not None:
+    elif message_text is not None:
+        # XXX: mypy bug.
+        assert message_text is not None
         # Ignore messages from non-users for now.
         if message.from_user is None:
             return
@@ -82,7 +87,7 @@ def extract_bot_events(
             recv_timestamp=recv_timestamp,
             user_chat_id=user_chat_id,
             basic_user_info=basic_user_info,
-            text=message.text,
+            text=message_text,
             is_edited=is_edited,
             message_id=BotApiMessageId(message.message_id),
             tg_timestamp=BotApiUTCTimestamp(
