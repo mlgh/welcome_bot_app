@@ -1,7 +1,6 @@
 import sqlite3
 from welcome_bot_app.model import LocalUTCTimestamp
-from welcome_bot_app.model.events import BaseEvent
-import aiogram
+from welcome_bot_app.model.events import BaseEvent, BotApiUpdate
 from typing import Any
 import logging
 
@@ -48,15 +47,24 @@ class EventLog:
             )
 
     # Below go helper methods for keeping all logging logic in one place.
-    def log_bot_api_event(
-        self, recv_timestamp: LocalUTCTimestamp, event: aiogram.types.Message
+    def log_bot_api_update(
+        self, recv_timestamp: LocalUTCTimestamp, update: BotApiUpdate
     ) -> None:
         try:
-            event_type = "BOT_API/MSG"
-            event_data = str(event)
+            if update.message is not None:
+                event_type = "BOT_API/MSG"
+                event_data = str(update.message)
+            elif update.edited_message is not None:
+                event_type = "BOT_API/MSG_EDIT"
+                event_data = str(update.edited_message)
+            elif update.message_reaction is not None:
+                event_type = "BOT_API/MSG_REACTION"
+                event_data = str(update.message_reaction)
+            else:
+                raise RuntimeError("Unexpected update:", update)
             self.log_event(recv_timestamp, event_type, event_data)
         except Exception:
-            logging.error("Failed to log raw Bot API event: %s", event, exc_info=True)
+            logging.error("Failed to log raw Bot API update: %s", update, exc_info=True)
 
     def log_telethon_event(self, recv_timestamp: LocalUTCTimestamp, event: Any) -> None:
         try:

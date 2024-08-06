@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, TypeAdapter
-from typing import Literal, Annotated, Union
+from typing import Literal, Annotated, Union, List
+from dataclasses import dataclass
 import aiogram.types
 from welcome_bot_app.model import (
     LocalUTCTimestamp,
@@ -9,6 +10,15 @@ from welcome_bot_app.model import (
     BotApiMessageId,
     TelethonMessageId,
 )
+
+
+@dataclass
+class BotApiUpdate:
+    """Exactly one of the fields below is set."""
+
+    message: aiogram.types.Message | None = None
+    edited_message: aiogram.types.Message | None = None
+    message_reaction: aiogram.types.MessageReactionUpdated | None = None
 
 
 class BaseEvent(BaseModel):
@@ -85,6 +95,40 @@ class BotApiChatMemberLeft(BaseEvent):
     user_chat_id: UserChatId
     tg_timestamp: BotApiUTCTimestamp
     chat_info: BotApiChatInfo
+
+
+class BotApiReactionEmoji(BaseModel):
+    emoji: str | None
+    custom_emoji_id: str | None
+
+    @classmethod
+    def from_bot_api_reaction(
+        cls,
+        reaction: aiogram.types.ReactionTypeEmoji
+        | aiogram.types.ReactionTypeCustomEmoji,
+    ) -> "BotApiReactionEmoji":
+        if isinstance(reaction, aiogram.types.ReactionTypeEmoji):
+            return BotApiReactionEmoji(emoji=reaction.emoji, custom_emoji_id=None)
+        elif isinstance(reaction, aiogram.types.ReactionTypeCustomEmoji):
+            return BotApiReactionEmoji(
+                emoji=None, custom_emoji_id=reaction.custom_emoji_id
+            )
+        else:
+            raise ValueError("Can't parse Bot API reaction:", reaction)
+
+
+class BotApiMessageReactionChanged(BaseEvent):
+    """Reactions changed for a message."""
+
+    event_type: Literal["BotApiMessageReactionChanged"] = "BotApiMessageReactionChanged"
+
+    user_chat_id: UserChatId
+    basic_user_info: BasicUserInfo
+    message_id: BotApiMessageId
+    tg_timestamp: BotApiUTCTimestamp
+    chat_info: BotApiChatInfo
+    old_reaction: List[BotApiReactionEmoji]
+    new_reaction: List[BotApiReactionEmoji]
 
 
 # Telethon events
