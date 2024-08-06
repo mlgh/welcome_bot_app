@@ -636,15 +636,13 @@ class EventProcessor:
             messages_per_user[bot_api_message.user_chat_id].append(bot_api_message)
         for chat_id, welcome_messages in welcome_messages_per_chat.items():
             chat_settings = self._bot_storage.get_chat_settings(chat_id)
-            welcome_messages = await self._delete_all_but_last_message(
+            await self._delete_all_but_last_message(
                 welcome_messages,
                 event.recv_timestamp,
                 delete_welcome_messages=True,
                 chat_settings=chat_settings,
             )
-            await self._delete_expired_messages(
-                welcome_messages, event.recv_timestamp, delete_welcome_messages=True
-            )
+            # TODO: "welcome" messages should not have TTL setting.
         for user, messages in messages_per_user.items():
             chat_settings = self._bot_storage.get_chat_settings(user.chat_id)
             messages = await self._delete_all_but_last_message(
