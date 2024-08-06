@@ -463,7 +463,7 @@ class EventProcessor:
         # TODO: Update this behavior if it's not desired.
         with self._open_user_profile(event.user_chat_id, chat_settings) as user_profile:
             user_profile.basic_user_info = event.basic_user_info
-            if "#ichbin" not in event.text:
+            if chat_settings.introduction_tag not in event.text:
                 return
             if not user_profile.is_waiting_for_ichbin_message():
                 logging.info(
