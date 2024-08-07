@@ -5,7 +5,6 @@ from aiogram import Bot
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from telethon import TelegramClient
-from telethon.sessions import StringSession
 
 from welcome_bot_app import bot_api_loop
 from welcome_bot_app import telethon_loop
@@ -33,8 +32,8 @@ args.parser().add_argument(
     help="File with API Hash for Telethon",
 )
 args.parser().add_argument(
-    "--telethon-session-file",
-    help="File with session string for Telethon",
+    "--telethon-session-file-prefix",
+    help="Path prefix for Telethon session file.",
 )
 args.parser().add_argument(
     "--event-queue-file", help="Path to the event queue file", required=True
@@ -67,16 +66,14 @@ async def main() -> None:
     if (
         args.args().telethon_api_id_file
         or args.args().telethon_api_hash_file
-        or args.args().telethon_session_file
+        or args.args().telethon_session_file_prefix
     ):
         with open(args.args().telethon_api_id_file, "r") as f:
             telethon_api_id = int(f.read().strip())
         with open(args.args().telethon_api_hash_file, "r") as f:
             telethon_api_hash = f.read().strip()
-        with open(args.args().telethon_session_file, "r") as f:
-            telethon_session_str = f.read().strip()
         telethon_client = TelegramClient(
-            StringSession(telethon_session_str), telethon_api_id, telethon_api_hash
+            args.args().telethon_session_file_prefix, telethon_api_id, telethon_api_hash
         )
 
     event_queue = SqliteEventQueue(
