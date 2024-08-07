@@ -1,9 +1,15 @@
 Running the bot locally
 ----
-To run the bot, create `secrets` directory and
 
-- populate `BOT_TOKEN` with the token from the @BotFather.
-- populate `TELETHON_API_ID` and `TELETHON_API_HASH` using instructions from https://docs.telethon.dev/en/stable/basic/signing-in.html
+```
+git clone https://github.com/mlgh/welcome_bot_app.git
+cd welcome_bot_app
+pipenv install
+mkdir secrets
+```
+
+- populate `secrets/BOT_TOKEN` with the token from the @BotFather.
+- populate `secrets/TELETHON_API_ID` and `secrets/TELETHON_API_HASH` using instructions from https://docs.telethon.dev/en/stable/basic/signing-in.html
 
 If you are running the first time, Telethon would need to authorize you in order to create a session file, please follow the instructions in the terminal.
 
@@ -13,7 +19,7 @@ If you are running the first time, Telethon would need to authorize you in order
 rm -rf /tmp/bot_dbs ;
 mkdir /tmp/bot_dbs ;
 pipenv run python3 -m welcome_bot_app \
- --bot-token-file secrets/BOT_TOKEN
+ --bot-token-file secrets/BOT_TOKEN \
  --telethon-api-id-file secrets/TELETHON_API_ID \
  --telethon-api-hash-file secrets/TELETHON_API_HASH \
  --telethon-session-file-prefix secrets/TELETHON_SESSION \
